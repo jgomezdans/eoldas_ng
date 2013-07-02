@@ -178,6 +178,52 @@ class TemporalSmoother ( object ):
         return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( self.D1.T)
             
 
+class ObservationOperator ( object ):
+    """An Identity observation operator"""
+    def __init__ ( self, observations, sigma_obs, mask):
+        self.observations = observations
+        self.sigma_obs = sigma_obs
+        self.mask = mask
+        self.n_elems = observations.shape[0]
+        
+    def der_cost ( self, x_dict, state_config ):
+        """Calculate the cost function and its partial derivs for identity obs op
+        
+        Takes a parameter dictionary, and a state configuration dictionary"""
+        i = 0
+        cost = 0
+        n = 0
+        
+        for typo in x_dict.iteritems():
+            if np.isscalar ( typo[1] ):
+                n = n + 1
+            else:
+                n = n + len ( typo[1] )
+        der_cost = np.zeros ( n )
+        for param, typo in state_config.iteritems():
+            
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass
+                
+            if typo == CONSTANT: # Constant value for all times
+                # No model constraint!
+                               
+                i += 1                
+                
+            elif typo == VARIABLE and param == "lai":
+                cost = cost + 0.5*np.sum((self.observations[self.mask] - x_dict[param])**2/self.sigma_obs**2)
+                der_cost[i:(i+self.n_elems)][self.mask] = (self.observations[self.mask] - x_dict[param])/self.sigma_obs**2
+                i += self.n_elems
+            elif typo == VARIABLE and param != "lai":
+                i += self.n_elems
+                
+        return cost, der_cost
+        
+
+                
+
+
 
 ##################################################################################        
 ##################################################################################              
@@ -247,5 +293,9 @@ if __name__ == "__main__":
     print der_cost
     s['lai'] = 5.*np.ones_like ( state_grid )
     cost, der_cost = smoother_time.der_cost ( s, state_config )
+    print cost
+    print der_cost
+    obs = ObservationOperator ( mu_prior['lai'] + np.random.randn(365)*0.1, 0.1, np.ones(365).astype(np.bool) )
+    cost, der_cost = obs.der_cost ( s, state_config )
     print cost
     print der_cost
