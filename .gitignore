@@ -33,7 +33,3 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
-<<<<<<< HEAD
-=======
-_build
->>>>>>> gh-pages
