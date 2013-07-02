@@ -127,10 +127,11 @@ class Prior ( object ):
                 
         return cost, der_cost
     
-    def der_der_cost ( self, x_dict, state_config ):
-        """The Hessian (rider)"""
+    def der_der_cost ( self ):
         pass
     
+    
+
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
     def __init__ ( self, gamma, state_grid, order=1 ):
@@ -171,11 +172,11 @@ class TemporalSmoother ( object ):
                 i += self.n_elems
                 
         return cost, der_cost
-        
-        
-
-                
-
+    
+    def der_der_cost ( self ):
+        """The Hessian (rider)"""
+        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( self.D1.T)
+            
 
 
 ##################################################################################        
