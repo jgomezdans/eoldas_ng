@@ -45,6 +45,7 @@ class State ( object ):
         self.state_grid = state_grid
         self.n_elems =  self.state_grid.size
         self.default_values = default_values
+        self.operators = {}
         
     def _unpack_to_dict ( self, x ):
         """Unpacks an optimisation vector `x` to a working dict"""
@@ -66,8 +67,22 @@ class State ( object ):
             
         return the_dict
   
-    #def unpack_from_dict ( self, the_dict ):
-        
+     #def unpack_from_dict ( self, the_dict ): # NOT needed, do it in the opearator
+     #def optimize ( self, x0 ):
+         
+     def add_operator ( self, op_name, op ):
+         """Add operators to the state class
+         
+         This method will add operator classes (e.g. objects with a `der_cost` and a
+         `der_der_cost` method)"""
+         the_op = getattr( op, "der_cost", None)
+         if not callable(the_op):
+             raise AttributeError, "%s does not have a der_cost method!" % op_name
+             
+         
+         self.operators[ op_name ] = op
+         
+         
 ##################################################################################        
 ##################################################################################        
 
