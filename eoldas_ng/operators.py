@@ -134,7 +134,7 @@ class Prior ( object ):
 
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
-    def __init__ ( self, gamma, state_grid, order=1 ):
+    def __init__ ( self, state_grid, order=1, gamma=None ):
         self.order = order
         self.n_elems = state_grid.shape[0]
         I = np.identity( state_grid.shape[0] )
@@ -147,7 +147,8 @@ class TemporalSmoother ( object ):
         i = 0
         cost = 0
         n = 0
-        
+        if x_dict.has_key ( 'gamma' ):
+            self.gamma = x_dict['gamma']
         for typo in x_dict.iteritems():
             if np.isscalar ( typo[1] ):
                 n = n + 1
