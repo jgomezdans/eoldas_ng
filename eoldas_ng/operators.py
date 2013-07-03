@@ -66,10 +66,7 @@ class State ( object ):
                 i += self.n_elems
             
         return the_dict
-  
-     #def unpack_from_dict ( self, the_dict ): # NOT needed, do it in the opearator
-     #def optimize ( self, x0 ):
-         
+    
      def add_operator ( self, op_name, op ):
          """Add operators to the state class
          
@@ -77,11 +74,24 @@ class State ( object ):
          `der_der_cost` method)"""
          the_op = getattr( op, "der_cost", None)
          if not callable(the_op):
-             raise AttributeError, "%s does not have a der_cost method!" % op_name
-             
-         
+             raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
-         
+     
+     def optimize ( self, x0 ):
+         """Optimise the state starting from a first guess `x0`"""
+         retval = scipy.optimize.fmin_bfgs ( self.cost, x0, disp=1, retall=1 )
+         return retval
+     
+     def cost ( self, x ):
+         """Calculate the cost function using a flattened state vector representation"""
+         x_dict = self._unpack_to_dict ( x )
+         aggr_cost = 0
+         aggr_der_cost = x*0.0
+         for op_name, the_op in self.operators.iteritems():
+             cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
+             aggr_cost = aggr_cost + cost
+             aggr_der_cost = aggr_der_cost + der_cost
+         return aggr_cost, aggr_der_cost
          
 ##################################################################################        
 ##################################################################################        
