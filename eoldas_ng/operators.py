@@ -67,7 +67,7 @@ class State ( object ):
             
         return the_dict
     
-     def add_operator ( self, op_name, op ):
+    def add_operator ( self, op_name, op ):
          """Add operators to the state class
          
          This method will add operator classes (e.g. objects with a `der_cost` and a
@@ -77,12 +77,13 @@ class State ( object ):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
      
-     def optimize ( self, x0 ):
+    def optimize ( self, x0 ):
          """Optimise the state starting from a first guess `x0`"""
-         retval = scipy.optimize.fmin_bfgs ( self.cost, x0, disp=1, retall=1 )
+         
+         retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1 )
          return retval
      
-     def cost ( self, x ):
+    def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
          x_dict = self._unpack_to_dict ( x )
          aggr_cost = 0
@@ -112,7 +113,7 @@ class Prior ( object ):
         
                     
     
-    def cost ( self, x_dict, state_config ):
+    def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivatives for the prior object
         
         Takes a parameter dictionary, and a state configuration dictionary"""
@@ -237,11 +238,11 @@ class ObservationOperator ( object ):
                                
                 i += 1                
                 
-            elif typo == VARIABLE and param == "lai":
-                cost = cost + 0.5*np.sum((self.observations[self.mask] - x_dict[param])**2/self.sigma_obs**2)
-                der_cost[i:(i+self.n_elems)][self.mask] = (self.observations[self.mask] - x_dict[param])/self.sigma_obs**2
+            elif typo == VARIABLE and param == "magnitude":
+                cost = cost + 0.5*np.sum((self.observations[self.mask] - x_dict[param][self.mask])**2/self.sigma_obs**2)
+                der_cost[i:(i+self.n_elems)][self.mask] = -(self.observations[self.mask] - x_dict[param][self.mask])/self.sigma_obs**2
                 i += self.n_elems
-            elif typo == VARIABLE and param != "lai":
+            elif typo == VARIABLE and param != "magnitude":
                 i += self.n_elems
                 
         return cost, der_cost
