@@ -248,6 +248,70 @@ class ObservationOperator ( object ):
         return cost, der_cost
         
 
+class ObservationOperatorGP ( object ):
+    """An Identity observation operator"""
+    def __init__ ( self, state_grid, observations, emulators, default_values ):
+        
+        self.sigma_obs = sigma_obs
+        self.n_elems = self.observations.shape[0]
+        self.state_grid = state_grid
+        self.emulators = emulators
+        self.default_values = default_values
+        
+    def read_obs ( self, observations ):
+        self.observations = np.loadtxt ( observations )
+        
+    def der_cost ( self, x_dict, state_config ):
+        """Calculate the cost function and its partial derivs for identity obs op
+        
+        Takes a parameter dictionary, and a state configuration dictionary"""
+        i = 0
+        cost = 0
+        n = 0
+        
+        for typo in x_dict.iteritems():
+            if np.isscalar ( typo[1] ):
+                n = n + 1
+            else:
+                n = n + len ( typo[1] )
+        der_cost = np.zeros ( n )
+        for (idoy_pos, obs_doy ) in enumerate ( self.observations[:,0] ): # This will probably need to be changed
+            # Each day has a different acquisition geometry, so we need
+            # to find the relvant emulator. In this case
+            emulator_key = "%08.4Gx%08.4Gx%08.4G" % ( self.observations[idoy_pos, [1,2,3] ] )
+            # This is the location of obs_doy in the state grid
+            iloc = self.state_grid == obs_doy
+            # The full state for today will be put together as a dictionary
+            this_doy_dict = {}
+            # Now loop over all parameters
+            for param, typo in state_config.iteritems():
+            
+                if typo == FIXED: # Default value for all times
+                    # 
+                    this_doy_dict[param] = self.defaults_values[param]
+                    
+                if typo == CONSTANT: # Constant value for all times
+                    # We should get a single scalar from x_dict here
+                    this_doy_dict[param] = x_dict[param]               
+
+                    
+                elif typo == VARIABLE:
+                    # For this particular date, the relevant parameter is at location iloc
+                    this_doy_dict[param] = x_dict[param][iloc]
+             # Now, translate the dictionary to an array or something
+             # I'm hoping that x_dict is an ordered dict, so that the keys are in
+             # prosail-friendly order
+             x_today = [ this_doy_dict[param] \
+                     for param in self.x_dict.iterkeys() ]
+             fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( x_today )
+             rho = fwd_model.dot(bandpass.T)/(self.bandpass.sum(axis=1))
+             # Now, the cost is straightforward
+             residuals = rho - self.observations[idoy_pos, 4+i] 
+             cost += 0.5*residuals**2/self.bu
+             #### TODO FIGURE OUT HOW THE DERIVATIVE WORKS
+             #deriv = residuals####
+        return cost, der_cost
+
                 
 
 
