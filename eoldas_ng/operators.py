@@ -307,7 +307,7 @@ class ObservationOperatorGP ( object ):
              rho = fwd_model.dot(bandpass.T)/(self.bandpass.sum(axis=1))
              # Now, the cost is straightforward
              residuals = rho - self.observations[idoy_pos, 4+i] 
-             cost += 0.5*residuals**2/self.bu
+             cost += 0.5*residuals**2/self.bu**2
              #### TODO FIGURE OUT HOW THE DERIVATIVE WORKS
              #deriv = residuals####
         return cost, der_cost
