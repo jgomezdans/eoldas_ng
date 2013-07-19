@@ -46,7 +46,32 @@ class State ( object ):
         self.n_elems =  self.state_grid.size
         self.default_values = default_values
         self.operators = {}
+        self.n_params = self._state_vector_size ()
         
+    def _state_vector_size ( self ):
+        n_params = 0
+        for param, typo in self.state_config.iteritems():
+            if typo == CONSTANT:
+                n_params  += 1
+            elif typo == VARIABLE:
+                n_params  += self.n_elems
+        return n_params
+        
+    def pack_from_dict ( self, x_dict ):
+        the_vector = np.zeros ( self.n_params )
+        # Now, populate said vector in the right order
+        # looping over state_config *should* preserve the order
+        i = 0
+        for param, typo in self.state_config.iteritems():
+            if typo == CONSTANT: # Constant value for all times
+                the_vector[i] = x_dict[param]
+                i = i+1        
+            elif typo == VARIABLE:
+                # For this particular date, the relevant parameter is at location iloc
+                the_vector[i:(i + self.n_elems)] =  x_dict[param]
+                i += self.n_elems
+        return the_vector 
+    
     def _unpack_to_dict ( self, x ):
         """Unpacks an optimisation vector `x` to a working dict"""
         the_dict = OrderedDict()
@@ -78,10 +103,13 @@ class State ( object ):
          self.operators[ op_name ] = op
      
     def optimize ( self, x0 ):
-         """Optimise the state starting from a first guess `x0`"""
-         
-         retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1 )
-         return retval
+        
+        """Optimise the state starting from a first guess `x0`"""
+        if type(x0) == type ( {} ):
+            x0 = self.pack_from_dict ( x0 )
+            
+        retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1 )
+        return retval
      
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
@@ -90,6 +118,7 @@ class State ( object ):
          aggr_der_cost = x*0.0
          for op_name, the_op in self.operators.iteritems():
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
+             print op_name, cost, der_cost.shape, aggr_cost
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
          return aggr_cost, aggr_der_cost
@@ -121,11 +150,12 @@ class Prior ( object ):
         cost = 0
         
         n = 0
-        for typo in x_dict.iteritems():
-            if np.isscalar ( typo[1] ):
-                n = n + 1
-            else:
-                n = n + len ( typo[1] )
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
         der_cost = np.zeros ( n )
         for param, typo in state_config.iteritems():
             
@@ -141,8 +171,8 @@ class Prior ( object ):
                 i += 1                
                 
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
-                if self.inv_cov[param].shape[0] == 1:
+                
+                if self.inv_cov[param].size == 1:
                     sigma = self.inv_cov[param]
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
                 cost_m = ( x_dict[param] - self.mu[param]).dot ( self.inv_cov[param] )
@@ -175,12 +205,16 @@ class TemporalSmoother ( object ):
         n = 0
         if x_dict.has_key ( 'gamma' ):
             self.gamma = x_dict['gamma']
-        for typo in x_dict.iteritems():
-            if np.isscalar ( typo[1] ):
-                n = n + 1
-            else:
-                n = n + len ( typo[1] )
+            x_dict.pop ( 'gamma' )
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
         der_cost = np.zeros ( n )
+
         for param, typo in state_config.iteritems():
             
             if typo == FIXED: # Default value for all times
@@ -250,16 +284,16 @@ class ObservationOperator ( object ):
 
 class ObservationOperatorGP ( object ):
     """An Identity observation operator"""
-    def __init__ ( self, state_grid, observations, emulators, default_values ):
+    def __init__ ( self, state_grid, observations, emulators, default_values, bu, bandpass ):
         
-        self.sigma_obs = sigma_obs
+        
+        self.observations = observations
         self.n_elems = self.observations.shape[0]
         self.state_grid = state_grid
         self.emulators = emulators
         self.default_values = default_values
-        
-    def read_obs ( self, observations ):
-        self.observations = np.loadtxt ( observations )
+        self.bandpass = bandpass
+        self.bu = bu
         
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivs for identity obs op
@@ -278,7 +312,8 @@ class ObservationOperatorGP ( object ):
         for (idoy_pos, obs_doy ) in enumerate ( self.observations[:,0] ): # This will probably need to be changed
             # Each day has a different acquisition geometry, so we need
             # to find the relvant emulator. In this case
-            emulator_key = "%08.4Gx%08.4Gx%08.4G" % ( self.observations[idoy_pos, [1,2,3] ] )
+            emulator_key = "emulator_%08.4Gx%08.4Gx%08.4G.npz" % ( self.observations[idoy_pos, [1] ], \
+                self.observations[idoy_pos, [2] ], self.observations[idoy_pos, [3] ])
             # This is the location of obs_doy in the state grid
             iloc = self.state_grid == obs_doy
             # The full state for today will be put together as a dictionary
@@ -288,7 +323,7 @@ class ObservationOperatorGP ( object ):
             
                 if typo == FIXED: # Default value for all times
                     # 
-                    this_doy_dict[param] = self.defaults_values[param]
+                    this_doy_dict[param] = self.default_values[param]
                     
                 if typo == CONSTANT: # Constant value for all times
                     # We should get a single scalar from x_dict here
@@ -298,18 +333,30 @@ class ObservationOperatorGP ( object ):
                 elif typo == VARIABLE:
                     # For this particular date, the relevant parameter is at location iloc
                     this_doy_dict[param] = x_dict[param][iloc]
-             # Now, translate the dictionary to an array or something
-             # I'm hoping that x_dict is an ordered dict, so that the keys are in
-             # prosail-friendly order
-             x_today = [ this_doy_dict[param] \
-                     for param in self.x_dict.iterkeys() ]
-             fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( x_today )
-             rho = fwd_model.dot(bandpass.T)/(self.bandpass.sum(axis=1))
-             # Now, the cost is straightforward
-             residuals = rho - self.observations[idoy_pos, 4+i] 
-             cost += 0.5*residuals**2/self.bu**2
-             #### TODO FIGURE OUT HOW THE DERIVATIVE WORKS
-             #deriv = residuals####
+            # Now, translate the dictionary to an array or something
+            # I'm hoping that x_dict is an ordered dict, so that the keys are in
+            # prosail-friendly order
+            x_today = [ this_doy_dict[param] \
+                    for param in x_dict.iterkeys() ]
+            fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( x_today )
+            rho = fwd_model.dot(self.bandpass.T)/(self.bandpass.sum(axis=1))
+            # Now, the cost is straightforward
+            residuals = rho - self.observations[idoy_pos, 4+i] 
+            cost += 0.5*residuals**2/self.bu**2
+            #############################
+            ### DERIVATIVE NOT YET DONE
+            ### der_fwd_model is (11, 2101), so need to apply bandpass functions etc
+            ###
+            the_derivatives = der_fwd_model.dot ( residuals ) # or something
+            i = 0
+            for param, typo in state_config.iteritems():
+                if typo == CONSTANT: # Constant value for all times
+                    der_cost[i] += the_derivatives[i]
+                    i += 1        
+                elif typo == VARIABLE:
+                    #For this particular date, the relevant parameter is at location iloc
+                    der_cost[i + i_loc ] =  the_derivatives[i] # vector
+                    i += self.state_grid.size # will this work for 1d and 2d?
         return cost, der_cost
 
                 
