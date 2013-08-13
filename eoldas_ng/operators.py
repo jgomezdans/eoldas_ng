@@ -36,7 +36,8 @@ class State ( object ):
        constant (so it is constant in time and/or space), or whether we
        just prescribe some default value."""
        
-    def __init__ ( self, state_config, state_grid, default_values ):
+    def __init__ ( self, state_config, state_grid, default_values, \
+            parameter_min, parameter_max ):
         """State constructor
         
         
@@ -47,7 +48,34 @@ class State ( object ):
         self.default_values = default_values
         self.operators = {}
         self.n_params = self._state_vector_size ()
+        self.parameter_min = parameter_min
+        self.parameter_max = parameter_max
+        self.bounds = []
+        for ( i, param ) in enumerate ( self.state_config.iterkeys() ):
+            self.bounds.append ( [ self.parameter_min[param], \
+                self.parameter_max[param] ] )
         
+    def set_transformations ( self, transformation_dict, \
+            invtransformation_dict ):
+        """We can set transformations to the data that will be
+        applied automatically when required."""
+        self.transformation_dict = transformation_dict
+        self.invtransformation_dict = invtransformation_dict
+        # Recalculate boundaries
+        self.bounds = []
+        for ( i, param ) in enumerate ( self.state_config.iterkeys() ):
+            if transformation_dict.has_key ( param ):
+                tmin = transformation_dict[param] ( self.parameter_min[param] )
+                tmax = transformation_dict[param] ( self.parameter_max[param] )
+            else:
+                tmin = self.parameter_min[param]
+                tmax = self.parameter_max[param]
+            if tmin > tmax:
+                self.bounds.append ([ tmax, tmin ] )
+            else:
+                self.bounds.append ([ tmin, tmax ] )
+                
+                
     def _state_vector_size ( self ):
         n_params = 0
         for param, typo in self.state_config.iteritems():
@@ -82,11 +110,19 @@ class State ( object ):
                 the_dict[param] = self.default_values[param]
                 
             elif typo == CONSTANT: # Constant value for all times
-                the_dict[param] = x[i]
+                if self.invtransformation_dict.has_key ( param ):
+                    the_dict[param] = self.invtransformation_dict[param]( x[i] )
+                else:
+                    the_dict[param] = x[i]
                 i += 1
                 
             elif typo == VARIABLE:
-                the_dict[param] = x[i:(i+self.n_elems)].reshape( \
+                if self.invtransformation_dict.has_key ( param ):
+                    the_dict[param] = self.invtransformation_dict[param] ( \
+                        x[i:(i+self.n_elems)]).reshape( \
+                        self.state_grid.shape )
+                else:
+                    the_dict[param] = x[i:(i+self.n_elems)].reshape( \
                         self.state_grid.shape )
                 i += self.n_elems
             
@@ -366,74 +402,109 @@ class ObservationOperatorGP ( object ):
 ##################################################################################        
 ##################################################################################              
 if __name__ == "__main__":
+
+    # Test the above classes, also demonstrate set up
     
-    state_config = OrderedDict()
+    # First, define the state configuration dictionary
+    state_config = OrderedDict ()
+    state_config['bsoil'] = CONSTANT
+    state_config['cbrown'] = VARIABLE
+    state_config['hspot'] = CONSTANT
+    state_config['n'] = CONSTANT
+    state_config['psoil'] = VARIABLE
+    state_config['ala'] = CONSTANT
+    state_config['cab'] = VARIABLE
+    state_config['car'] = CONSTANT
+    state_config['cm'] = VARIABLE
+    state_config['cw'] = VARIABLE
     state_config['lai'] = VARIABLE
-    state_config['xkab'] = VARIABLE
-    state_config['xdm'] = VARIABLE
-    state_config['xleafn'] = CONSTANT
-    state_config['xs1'] = CONSTANT
-    state_config['canh'] = FIXED
-    state_config['leafr'] = FIXED
+    
+    # Now define the default values
+    default_par = OrderedDict ()
+    default_par['bsoil'] = 1.
+    default_par['cbrown'] = 0.01
+    default_par['hspot'] = 0.01
+    default_par['n'] = 1.5
+    default_par['psoil'] = 0.1
+    default_par['ala'] = 45.
+    default_par['cab'] = 40.
+    default_par['car'] = 10.
+    default_par['cm'] = 0.0065 # Say?
+    default_par['cw'] = 0.018 # Say?
+    default_par['lai'] = 2
+    # Define boundaries
+    parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
+        'psoil', 'ala', 'cab', 'car', 'cm', 'cw', 'lai' ]
+    parameter_min = OrderedDict()
+    parameter_max = OrderedDict()
+    min_vals = [ 0., 0., 0.001, 0.8, 0., 0., 0.2, 0., 0.0017, 0.0043, 0.001 ]
+    max_vals = [ 2., 1., 0.999, 2.5, 1., 90., 77., 25., 0.0331, 0.0713, 15 ]
+    for i, param in enumerate ( parameter_names ):
+        parameter_min[param] = min_vals[i]
+        parameter_max[param] = max_vals[i]
+    # Define the state grid. In time in this case
     state_grid = np.arange ( 1, 366 )
-    default_par = OrderedDict()
-    default_par['lai'] = 1.
-    default_par['xkab'] = 40.
-    default_par['xdm'] = 0.03
-    default_par['xleafn'] = 1.5
-    default_par['xs1'] = 0.75
-    default_par['canh'] = 1.
-    default_par['leafr'] = 0.1
+    # Define parameter transformations
+    transformations = {
+        'lai': lambda x: np.exp ( -x/2. ), \
+        'cab': lambda x: np.exp ( -x/100. ), \
+        'car': lambda x: np.exp ( -x/100. ), \
+        'cw': lambda x: np.exp ( -50.*x ), \
+        'cm': lambda x: np.exp ( -100.*x ), \
+        'ala': lambda x: x/90. }
+    inv_transformations = {
+        'lai': lambda x: -2*np.log ( x ), \
+        'cab': lambda x: -100*np.log ( x ), \
+        'car': lambda x: -100*np.log( x ), \
+        'cw': lambda x: (-1/50.)*np.log ( x ), \
+        'cm': lambda x: (-1/100.)*np.log ( x ), \
+        'ala': lambda x: 90.*x }
     
-    state = State ( state_config, state_grid, default_par )
-    lai = 5.*np.ones_like ( state_grid )
-    xkab = 80.*np.ones_like ( state_grid )
-    xdm = 0.01*np.ones_like ( state_grid )
-    xleafn = 2.5
-    xs1 = 0.5
+    # Define the state
+    # L'etat, c'est moi
+    state = State ( state_config, state_grid, default_par, \
+        parameter_min, parameter_max )
+    # Set the transformations
+    state.set_transformations ( transformations, inv_transformations )
+
     
-    x = np.r_[lai, xkab, xdm, xleafn, xs1]
+    bsoil = 1.2
+    cbrown = 0.4*(1-np.cos(2*np.pi*state_grid/365.))
+    hspot = 0.01
+    n = 2.1
+    psoil = 0.5*(1-np.cos(2*np.pi*state_grid/365.))
+    ala = state.transformation_dict['ala'](45.)
+    cab = state.transformation_dict['cab'](80*(1-np.cos(2*np.pi*state_grid/365.)))
+    car = state.transformation_dict['car'](1.)
+    cm = state.transformation_dict['cm'](0.0017*(1-np.cos(2*np.pi*state_grid/365.)))
+    cw = state.transformation_dict['cw'](0.03*(1-np.cos(2*np.pi*state_grid/365.)))
+    lai = state.transformation_dict['lai'](4.0*(1-np.cos(2*np.pi*state_grid/365.)))
+    
+    x = np.r_[ bsoil, cbrown, hspot, n, psoil, ala, cab, car, cm, cw, lai ]
+    # Get the original responses by
+    # lai_traj = state._unpack_to_dict(x )['lai']
     s = state._unpack_to_dict ( x )
+
+            
     mu_prior = OrderedDict ()
     prior_inv_cov = OrderedDict ()
-    x = np.arange( 1, 366 )
-    mu_prior['lai' ] = 1- np.cos((2*np.pi*x/365.))
-    mu_prior['xkab' ] = np.array([90.])
-    mu_prior['xdm' ] = np.array([0.03])
-    mu_prior['xleafn'] = np.array([1.5])
-    mu_prior['xs1'] = np.array([0.75])
-    mu_prior['canh'] = np.array([1.])
-    mu_prior['leafr'] = np.array([0.1])
-    
-    prior_inv_cov['lai'] = np.diag(np.ones(365)/(0.5*0.5))
-    prior_inv_cov['xkab'] = np.array([(1./20.)**2])
-    prior_inv_cov['xdm'] = np.array( [(1./0.005)**2])
-    prior_inv_cov['xleafn'] =  np.array([(1./0.02)**2])
-    prior_inv_cov['xs1'] =  np.array( [(1./0.1)**2])
-    prior_inv_cov['canh'] =  np.array([0.])
-    prior_inv_cov['leafr'] =  np.array([0.])
-    
+    for param in parameter_names:
+        mu_prior[param] = np.array([default_par[param]])
+        prior_inv_cov[param] = np.array(parameter_max[param] - parameter_min[param]*0.4)
     prior = Prior ( mu_prior, prior_inv_cov )
-    cost, der_cost = prior.cost(s, state_config)
-    print cost
-    print der_cost
+    cost, der_cost = prior.der_cost ( s, state_config )
     
-    s['lai'] = mu_prior['lai']
-    cost, der_cost = prior.cost(s, state_config)
-    
-    print cost
-    print der_cost
     
     gamma = 10.
-    smoother_time = TemporalSmoother ( gamma, state_grid )
+    smoother_time = TemporalSmoother ( state_grid, gamma=gamma)
     cost, der_cost = smoother_time.der_cost ( s, state_config )
-    print cost
-    print der_cost
-    s['lai'] = 5.*np.ones_like ( state_grid )
-    cost, der_cost = smoother_time.der_cost ( s, state_config )
-    print cost
-    print der_cost
-    obs = ObservationOperator ( mu_prior['lai'] + np.random.randn(365)*0.1, 0.1, np.ones(365).astype(np.bool) )
-    cost, der_cost = obs.der_cost ( s, state_config )
-    print cost
-    print der_cost
+    #print cost
+    #print der_cost
+    #s['lai'] = 5.*np.ones_like ( state_grid )
+    #cost, der_cost = smoother_time.der_cost ( s, state_config )
+    #print cost
+    #print der_cost
+    #obs = ObservationOperator ( mu_prior['lai'] + np.random.randn(365)*0.1, 0.1, np.ones(365).astype(np.bool) )
+    #cost, der_cost = obs.der_cost ( s, state_config )
+    #print cost
+    #print der_cost

@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 # easy_install pyephem
-import ephem   
+#import ephem   
 
 from prosail import run_prosail
 
@@ -575,6 +575,90 @@ format = 'PARAMETERS'
         EOLDAS.solve()
 
 
+def rank_restr(nvars=4, smp=100, noCorrRestr=False, Corrmat=None):
+    """
+    Returns the indices for sampling variables with  
+    the desired correlation structure.
+    
+    :Parameters:
+        - `nvars`: number of variables
+        - `smp`: number of samples
+        - `noCorrRestr`: No correlation restriction if True
+        - `Corrmat`: Correlation matrix. If None, assure uncorrelated samples.
+    """
+    if isinstance(smp,(tuple,list)):
+            smp=numpy.product(smp)
+    def shuf(s):
+        s1=[]
+        for i in xrange(nvars):
+            numpy.random.shuffle(s)
+            s1.append(s.copy())
+        return s1
+    if noCorrRestr or nvars ==1:
+        x = [stats.randint.rvs(0,smp+0,size=smp) for i in xrange(nvars)]
+    else:
+        if Corrmat == None:
+            C=numpy.core.numeric.identity(nvars)
+        else:
+            if Corrmat.shape[0] != nvars:
+                raise TypeError('Correlation matrix must be of rank %s'%nvars)
+            C=numpy.matrix(Corrmat)
+        s0=numpy.arange(1.,smp+1)/(smp+1.)
+        s=stats.norm().ppf(s0)
+        s1 = shuf(s)
+        S=numpy.matrix(s1)
+        P=cholesky(C)
+        Q=cholesky(numpy.corrcoef(S))
+
+        Final=S.transpose()*inv(Q).transpose()*P.transpose()
+        x = [stats.stats.rankdata(Final.transpose()[i,]) for i in xrange(nvars)]
+    return x
+
+def lhs(dist, parms, siz=100, noCorrRestr=False, corrmat=None):
+    '''
+    Latin Hypercube sampling of any distribution.
+    dist is is a scipy.stats random number generator 
+    such as stats.norm, stats.beta, etc
+    parms is a tuple with the parameters needed for 
+    the specified distribution.
+
+    :Parameters:
+        - `dist`: random number generator from scipy.stats module or a list of them.
+        - `p    arms`: tuple of parameters as required for dist, or a list of them.
+        - `siz` :number or shape tuple for the output sample
+        - `noCorrRestr`: if true, does not enforce correlation structure on the sample.
+        - `corrmat`: Correlation matrix
+    '''
+    if not isinstance(dist,(list,tuple)):
+        dists = [dist]
+        parms = [parms]
+    else:
+        assert len(dist) == len(parms)
+        dists = dist
+    indices=rank_restr(nvars=len(dists), smp=siz, noCorrRestr=noCorrRestr, Corrmat=corrmat)
+    smplist = []
+    for j,d in enumerate(dists):
+        if not isinstance(d, (stats.rv_discrete,stats.rv_continuous)):
+            raise TypeError('dist is not a scipy.stats distribution object')
+        n=siz
+        if isinstance(siz,(tuple,list)):
+            n=numpy.product(siz)
+        #force type to float for sage compatibility
+        pars = tuple([float(k) for k in parms[j]])
+        #perc = numpy.arange(1.,n+1)/(n+1)
+        step = 1./(n)
+        perc = numpy.arange(0, 1, step) #class boundaries
+        s_pos = [uniform(i, i+ step) for i in perc[:]]#[i+ step/2. for i in perc[:]]
+        v = d(*pars).ppf(s_pos)
+        #print len(v), step, perc
+        index=map(int,indices[j]-1)
+        v = v[index]
+        if isinstance(siz,(tuple,list)):
+            v.shape = siz
+        smplist.append(v)
+    if len(dists) == 1:
+        return smplist[0]
+    return smplist
 
     
 if __name__ == "__main__":
