@@ -190,7 +190,7 @@ class Prior ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
+                n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
         for param, typo in state_config.iteritems():
@@ -211,8 +211,8 @@ class Prior ( object ):
                 if self.inv_cov[param].size == 1:
                     sigma = self.inv_cov[param]
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
-                cost_m = ( x_dict[param] - self.mu[param]).dot ( self.inv_cov[param] )
-                cost = cost + 0.5*(cost_m*(x_dict[param] - self.mu[param])).sum()
+                cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( self.inv_cov[param] )
+                cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - self.mu[param])).sum()
                 der_cost[i:(i+n_elems)] = cost_m                                         
                 
                 i += n_elems
@@ -317,18 +317,91 @@ class ObservationOperator ( object ):
                 
         return cost, der_cost
         
-
-class ObservationOperatorGP ( object ):
-    """An Identity observation operator"""
-    def __init__ ( self, state_grid, observations, emulators, default_values, bu, bandpass ):
+class ObservationOperatorTimeSeriesGP ( object ):
+    """A GP-based observation operator"""
+     def __init__ ( self, state_grid, observations, mask, emulator, bu ):
+         """
+         observations is an array with n_bands, nt observations. nt has to be the 
+         same size as state_grid (can have dummny numbers in). mask is nt*4 
+         (mask, vza, sza, raa) array
+         """
+        self.observations = observations
+        try:
+            self.n_bands, self.nt = self.observations.shape
+        except:
+            raise ValueError, "Typically, obs shuold be n_bands * nx * ny"
+        self.mask = mask
+        assert ( self.nt ) == mask.shape[0]
+        self.state_grid = state_grid
+        self.emulator = emulator
+        self.bu = bu
         
+    def der_cost ( self, x_dict, state_config ):
+        i = 0
+        cost = 0.
+        n = 0
+        
+        for typo in x_dict.iteritems():
+            if np.isscalar ( typo[1] ):
+                n = n + 1
+            else:
+                n = n + typo[1].size
+        der_cost = np.zeros ( n )
+        x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
+        j = 0
+        ii = 0
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nt ) )
+        for param, typo in state_config.iteritems():
+        
+            if typo == FIXED or  typo == CONSTANT:
+                x_params[ j, : ] = x_dict[param]
+                
+            elif typo == VARIABLE:
+                # For this particular date, the relevant parameter is at location iloc
+                x_params[ j, : ] = x_dict[param]
+            j += 1
+        
+        for itime, tstep in enumerate ( self.state_grid ):
+            if self.mask[itime, 0] is False:
+                # No obs here
+                continue
+            vza, sza, raa = mask[itime, 1:]
+            vza_key = int (round( vza/5.)*5.)
+            sza_key = int (round( sza/5.)*5.)
+            raa_key = int (round( raa/5.)*5.)
+            the_emu = self.emulator[ "%d_%d_%d" % ( vza_key, sza_key, raa_key ) ]
+             
+            fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( \
+                x_params[:, itime] )
+            
+            # Now, the cost is straightforward
+            residuals = fwd_model - self.observations[ :, itime ] 
+            cost += 0.5*residuals**2/self.bu**2
+            the_derivatives[ :, itime] = der_fwd_model.dot ( residuals ) # or something
+
+        i = 0
+        for param, typo in state_config.iteritems():
+            der_cost[i] = the_derivatives[i,:].sum()
+            i += 1
+            
+        return cost, der_cost
+        
+         
+class ObservationOperatorImageGP ( object ):
+    """A GP-based observation operator"""
+    def __init__ ( self, state_grid, observations, mask, emulator, bu ):
+        """
+        """
         
         self.observations = observations
-        self.n_elems = self.observations.shape[0]
+        try:
+            self.n_bands, self.ny, self.nx = self.observations.shape
+        except:
+            raise ValueError, "Typically, obs shuold be n_bands * nx * ny"
+        self.mask = mask
+        assert ( self.ny, self.nx ) == mask.shape
         self.state_grid = state_grid
-        self.emulators = emulators
-        self.default_values = default_values
-        self.bandpass = bandpass
+        self.emulator = emulator
         self.bu = bu
         
     def der_cost ( self, x_dict, state_config ):
@@ -345,6 +418,13 @@ class ObservationOperatorGP ( object ):
             else:
                 n = n + len ( typo[1] )
         der_cost = np.zeros ( n )
+        
+        for the_idx in np.ndindex( self.ny, self.nx ):
+            if self.mask[ the_idx ] is False:
+                continue
+            the_obs = self.observations[:, the_idx ]
+            
+            
         for (idoy_pos, obs_doy ) in enumerate ( self.observations[:,0] ): # This will probably need to be changed
             # Each day has a different acquisition geometry, so we need
             # to find the relvant emulator. In this case
@@ -401,7 +481,8 @@ class ObservationOperatorGP ( object ):
 
 ##################################################################################        
 ##################################################################################              
-if __name__ == "__main__":
+#if __name__ == "__main__":
+def test_1d ():
 
     # Test the above classes, also demonstrate set up
     
@@ -498,13 +579,115 @@ if __name__ == "__main__":
     gamma = 10.
     smoother_time = TemporalSmoother ( state_grid, gamma=gamma)
     cost, der_cost = smoother_time.der_cost ( s, state_config )
-    #print cost
-    #print der_cost
-    #s['lai'] = 5.*np.ones_like ( state_grid )
-    #cost, der_cost = smoother_time.der_cost ( s, state_config )
-    #print cost
-    #print der_cost
-    #obs = ObservationOperator ( mu_prior['lai'] + np.random.randn(365)*0.1, 0.1, np.ones(365).astype(np.bool) )
-    #cost, der_cost = obs.der_cost ( s, state_config )
-    #print cost
-    #print der_cost
+
+def test_2d():
+    # Test the above classes, also demonstrate set up
+    
+    # First, define the state configuration dictionary
+    state_config = OrderedDict ()
+    state_config['bsoil'] = CONSTANT
+    state_config['cbrown'] = CONSTANT
+    state_config['hspot'] = CONSTANT
+    state_config['n'] = CONSTANT
+    state_config['psoil'] = CONSTANT
+    state_config['ala'] = CONSTANT
+    state_config['cab'] = VARIABLE
+    state_config['car'] = CONSTANT
+    state_config['cm'] = CONSTANT
+    state_config['cw'] = CONSTANT
+    state_config['lai'] = VARIABLE
+    
+    # Now define the default values
+    default_par = OrderedDict ()
+    default_par['bsoil'] = 1.
+    default_par['cbrown'] = 0.01
+    default_par['hspot'] = 0.01
+    default_par['n'] = 1.5
+    default_par['psoil'] = 0.1
+    default_par['ala'] = 45.
+    default_par['cab'] = 40.
+    default_par['car'] = 10.
+    default_par['cm'] = 0.0065 # Say?
+    default_par['cw'] = 0.018 # Say?
+    default_par['lai'] = 2
+    # Define boundaries
+    parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
+        'psoil', 'ala', 'cab', 'car', 'cm', 'cw', 'lai' ]
+    parameter_min = OrderedDict()
+    parameter_max = OrderedDict()
+    min_vals = [ 0., 0., 0.001, 0.8, 0., 0., 0.2, 0., 0.0017, 0.0043, 0.001 ]
+    max_vals = [ 2., 1., 0.999, 2.5, 1., 90., 77., 25., 0.0331, 0.0713, 15 ]
+    for i, param in enumerate ( parameter_names ):
+        parameter_min[param] = min_vals[i]
+        parameter_max[param] = max_vals[i]
+    # Define the state grid. In space in this case
+    state_grid = np.arange ( 1, 256*256 + 1).reshape((256,256))
+    
+    # Define parameter transformations
+    transformations = {
+        'lai': lambda x: np.exp ( -x/2. ), \
+        'cab': lambda x: np.exp ( -x/100. ), \
+        'car': lambda x: np.exp ( -x/100. ), \
+        'cw': lambda x: np.exp ( -50.*x ), \
+        'cm': lambda x: np.exp ( -100.*x ), \
+        'ala': lambda x: x/90. }
+    inv_transformations = {
+        'lai': lambda x: -2*np.log ( x ), \
+        'cab': lambda x: -100*np.log ( x ), \
+        'car': lambda x: -100*np.log( x ), \
+        'cw': lambda x: (-1/50.)*np.log ( x ), \
+        'cm': lambda x: (-1/100.)*np.log ( x ), \
+        'ala': lambda x: 90.*x }
+    
+    # Define the state
+    # L'etat, c'est moi
+    state = State ( state_config, state_grid, default_par, \
+        parameter_min, parameter_max )
+    # Set the transformations
+    state.set_transformations ( transformations, inv_transformations )
+
+    import matplotlib
+    import numpy as np
+    import matplotlib.mlab as mlab
+
+    
+    
+    delta = 6./256.
+    x = np.arange(-3.0, 3.0, delta)
+    y = np.arange(-3.0, 3.0, delta)
+    X, Y = np.meshgrid(x, y)
+    Z1 = mlab.bivariate_normal(X, Y, 1.0, 1.0, 0.0, 0.0)
+    Z2 = mlab.bivariate_normal(X, Y, 1.5, 0.5, 1, 1)
+    # difference of Gaussians
+    Z = 10.0 * (Z2 - Z1)
+    
+    bsoil = 1.2
+    cbrown = 0.8#*(1-np.cos(2*np.pi*state_grid/365.))
+    hspot = 0.01
+    n = 2.1
+    psoil = 1.0 # *(1-np.cos(2*np.pi*state_grid/365.))
+    ala = state.transformation_dict['ala'](45.)
+    
+    car = state.transformation_dict['car'](1.)
+    cm = state.transformation_dict['cm'](0.0017)#*(1-np.cos(2*np.pi*state_grid/365.)))
+    cw = state.transformation_dict['cw'](0.03)#*(1-np.cos(2*np.pi*state_grid/365.)))
+    cab = state.transformation_dict['cab'](40*(0.5*Z - Z.min()))
+    lai = state.transformation_dict['lai'](1.5*(Z - Z.min()))
+    x = np.r_[ bsoil, cbrown, hspot, n, psoil, ala, cab.flatten(), car, cm, cw, lai.flatten() ]
+    # Get the original responses by
+    # lai_traj = state._unpack_to_dict(x )['lai']
+    s = state._unpack_to_dict ( x )
+
+            
+    mu_prior = OrderedDict ()
+    prior_inv_cov = OrderedDict ()
+    for param in parameter_names:
+        mu_prior[param] = np.array([default_par[param]])
+        prior_inv_cov[param] = np.array(parameter_max[param] - parameter_min[param]*0.4)
+    prior = Prior ( mu_prior, prior_inv_cov )
+    cost, der_cost = prior.der_cost ( s, state_config )
+    
+    
+    gamma = 10.
+    smoother_time = TemporalSmoother ( state_grid, gamma=gamma)
+    cost, der_cost = smoother_time.der_cost ( s, state_config )
