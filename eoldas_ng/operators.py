@@ -54,6 +54,9 @@ class State ( object ):
         for ( i, param ) in enumerate ( self.state_config.iterkeys() ):
             self.bounds.append ( [ self.parameter_min[param], \
                 self.parameter_max[param] ] )
+        self.invtransformation_dict = {}
+        self.transformation_dict = {}
+        
         
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
@@ -119,10 +122,10 @@ class State ( object ):
             elif typo == VARIABLE:
                 if self.invtransformation_dict.has_key ( param ):
                     the_dict[param] = self.invtransformation_dict[param] ( \
-                        x[i:(i+self.n_elems)]).reshape( \
+                        x[i:(i+self.n_elems )]).reshape( \
                         self.state_grid.shape )
                 else:
-                    the_dict[param] = x[i:(i+self.n_elems)].reshape( \
+                    the_dict[param] = x[i:(i+self.n_elems )].reshape( \
                         self.state_grid.shape )
                 i += self.n_elems
             
@@ -226,22 +229,27 @@ class Prior ( object ):
 
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
-    def __init__ ( self, state_grid, order=1, gamma=None ):
+    def __init__ ( self, state_grid, gamma, order=1, required_params = None  ):
         self.order = order
         self.n_elems = state_grid.shape[0]
         I = np.identity( state_grid.shape[0] )
         self.D1 = np.matrix(I - np.roll(I,1))
         self.gamma = gamma
-    def der_cost ( self, x_dict, state_config ):
+        self.required_params = required_params
+        
+    def der_cost ( self, x_dict, state_config):
         """Calculate the cost function and its partial derivs for a time smoother
         
         Takes a parameter dictionary, and a state configuration dictionary"""
         i = 0
         cost = 0
         n = 0
-        if x_dict.has_key ( 'gamma' ):
-            self.gamma = x_dict['gamma']
-            x_dict.pop ( 'gamma' )
+        self.required_params = self.required_params or state_config.keys()
+        ## This is a nice idea if you wanted to e.g. solve for
+        ## gamma....
+        ##if x_dict.has_key ( 'gamma' ):
+            ##self.gamma = x_dict['gamma']
+            ##x_dict.pop ( 'gamma' )
         n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
@@ -263,10 +271,12 @@ class TemporalSmoother ( object ):
                 i += 1                
                 
             elif typo == VARIABLE:
-                xa = np.matrix ( x_dict[param] )
-                cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
-                der_cost[i:(i+self.n_elems)] = np.array(self.gamma*np.dot((self.D1).T, self.D1*xa.T)).squeeze()                
+                if param in self.required_params :
+                    xa = np.matrix ( x_dict[param] )
+                    cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
+                    der_cost[i:(i+self.n_elems)] = np.array(self.gamma*np.dot((self.D1).T, self.D1*xa.T)).squeeze()                
                 i += self.n_elems
+                
                 
         return cost, der_cost
     
@@ -277,12 +287,12 @@ class TemporalSmoother ( object ):
 
 class ObservationOperator ( object ):
     """An Identity observation operator"""
-    def __init__ ( self, observations, sigma_obs, mask):
+    def __init__ ( self, observations, sigma_obs, mask, required_params = ['magnitude']):
         self.observations = observations
         self.sigma_obs = sigma_obs
         self.mask = mask
         self.n_elems = observations.shape[0]
-        
+        self.required_params = required_params
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivs for identity obs op
         
@@ -308,28 +318,30 @@ class ObservationOperator ( object ):
                                
                 i += 1                
                 
-            elif typo == VARIABLE and param == "magnitude":
-                cost = cost + 0.5*np.sum((self.observations[self.mask] - x_dict[param][self.mask])**2/self.sigma_obs**2)
-                der_cost[i:(i+self.n_elems)][self.mask] = -(self.observations[self.mask] - x_dict[param][self.mask])/self.sigma_obs**2
-                i += self.n_elems
-            elif typo == VARIABLE and param != "magnitude":
+            elif typo == VARIABLE:
+                if param in self.required_params:
+                    cost = cost + 0.5*np.sum((self.observations[self.mask] - \
+                        x_dict[param][self.mask])**2/self.sigma_obs**2)
+                    der_cost[i:(i+self.n_elems)][self.mask] = \
+                        -(self.observations[self.mask] - \
+                        x_dict[param][self.mask])/self.sigma_obs**2
                 i += self.n_elems
                 
         return cost, der_cost
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-     def __init__ ( self, state_grid, observations, mask, emulator, bu ):
-         """
+    def __init__ ( self, state_grid, observations, mask, emulator, bu ):
+        """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
          (mask, vza, sza, raa) array
-         """
+        """
         self.observations = observations
         try:
             self.n_bands, self.nt = self.observations.shape
         except:
-            raise ValueError, "Typically, obs shuold be n_bands * nx * ny"
+            raise ValueError, "Typically, obs should be n_bands * nx * ny"
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
@@ -482,45 +494,103 @@ class ObservationOperatorImageGP ( object ):
 ##################################################################################        
 ##################################################################################              
 #if __name__ == "__main__":
+
+def test_1d_identity ():
+    # A time problem using an identity operator, e.g. NDVI smoothing
+    state_config = OrderedDict ()
+    state_config [ 'magnitude' ] = VARIABLE
+    
+    default_par = OrderedDict ()
+    default_par [ 'magnitude' ] = 0.5
+    parameter_min = OrderedDict ()
+    parameter_max = OrderedDict ()
+    parameter_min [ 'magnitude' ] = 0.
+    parameter_max [ 'magnitude' ] = 1.
+    
+    state_grid = np.arange ( 1, 201 )
+    
+    state = State ( state_config, state_grid, default_par, \
+        parameter_min, parameter_max )
+
+            
+    mu_prior = OrderedDict ()
+    prior_inv_cov = OrderedDict ()
+    mu_prior[ 'magnitude' ] = np.array([0.5])
+    prior_inv_cov [ 'magnitude' ] = np.array([(1.96/0.5)**2])
+    
+    prior = Prior ( mu_prior, prior_inv_cov )
+    
+
+    regularisation = TemporalSmoother ( state_grid, order=1, gamma=200 )
+    
+    
+    obs = np.loadtxt("/home/ucfajlg/Data/python/eoldas_package/" + \
+        "eoldas_examples/data/Identity/random_ndvi1.dat" )[:,2]
+    mask = np.ones_like ( obs, dtype=np.bool )
+    observations = ObservationOperator( obs, 0.1, mask )
+    
+
+    state.add_operator ( "prior", prior )
+    state.add_operator ( "smoother", regularisation )
+    state.add_operator ( "observations", observations )
+    
+
 def test_1d ():
 
     # Test the above classes, also demonstrate set up
     
+    
+  
+    
     # First, define the state configuration dictionary
+    
     state_config = OrderedDict ()
-    state_config['bsoil'] = CONSTANT
-    state_config['cbrown'] = VARIABLE
-    state_config['hspot'] = CONSTANT
+    
     state_config['n'] = CONSTANT
-    state_config['psoil'] = VARIABLE
-    state_config['ala'] = CONSTANT
     state_config['cab'] = VARIABLE
     state_config['car'] = CONSTANT
-    state_config['cm'] = VARIABLE
+    state_config['cbrown'] = VARIABLE
     state_config['cw'] = VARIABLE
+    state_config['cm'] = VARIABLE
     state_config['lai'] = VARIABLE
+    state_config['ala'] = CONSTANT
+    state_config['lidfb'] = FIXED
+    state_config['bsoil'] = CONSTANT
+    state_config['psoil'] = VARIABLE
+    state_config['hspot'] = CONSTANT
+    
+    
+    
     
     # Now define the default values
     default_par = OrderedDict ()
-    default_par['bsoil'] = 1.
-    default_par['cbrown'] = 0.01
-    default_par['hspot'] = 0.01
     default_par['n'] = 1.5
-    default_par['psoil'] = 0.1
-    default_par['ala'] = 45.
     default_par['cab'] = 40.
     default_par['car'] = 10.
-    default_par['cm'] = 0.0065 # Say?
+    default_par['cbrown'] = 0.01
     default_par['cw'] = 0.018 # Say?
+    default_par['cm'] = 0.0065 # Say?
     default_par['lai'] = 2
+    default_par['ala'] = 45.
+    default_par['lidfb'] = 0.
+    default_par['bsoil'] = 1.
+    default_par['psoil'] = 0.1
+    default_par['hspot'] = 0.01
+    
+    
     # Define boundaries
-    parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
-        'psoil', 'ala', 'cab', 'car', 'cm', 'cw', 'lai' ]
+    #parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
+    #    'psoil', 'ala', 'lidfb', 'cab', 'car', 'cm', 'cw', 'lai' ]
     parameter_min = OrderedDict()
     parameter_max = OrderedDict()
-    min_vals = [ 0., 0., 0.001, 0.8, 0., 0., 0.2, 0., 0.0017, 0.0043, 0.001 ]
-    max_vals = [ 2., 1., 0.999, 2.5, 1., 90., 77., 25., 0.0331, 0.0713, 15 ]
-    for i, param in enumerate ( parameter_names ):
+    
+    min_vals = [ 0.8, 0.2, 0.0, 0.0, 0.0043, 0.0017, 0.001, 0., 0., 0., 0., 0.001]
+    max_vals = [2.5, 77., 25., 1., 0.0713, 0.0331, 8., 90., 0., 2., 8., 0.999]
+
+
+        
+        
+    for i, param in enumerate ( state_config.keys() ):
         parameter_min[param] = min_vals[i]
         parameter_max[param] = max_vals[i]
     # Define the state grid. In time in this case
