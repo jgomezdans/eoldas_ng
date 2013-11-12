@@ -95,7 +95,7 @@ class State ( object ):
         i = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT: # Constant value for all times
-                the_vector[i] = x_dict[param]
+                the_vector[i] = x_dict[param][0]
                 i = i+1        
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
