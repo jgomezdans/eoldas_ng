@@ -8,6 +8,7 @@ import os
 import shutil
 import itertools
 
+
 import numpy as np 
 import scipy.stats as ss
 
@@ -164,17 +165,12 @@ def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
         train_brf = fixnan ( train_brf )
         validate_brf = fixnan ( validate_brf )
         emu, rmse = do_mv_emulation ( x, validate, train_brf, validate_brf )
-        print "Dumping to %s (RMSE:%g)" % ( fnames[i], rmse )
-        emu.dump_emulator ( fnames[i] )
+        print "(RMSE:%g)" % ( rmse )
+        #emu.dump_emulator ( fnames[i] )
         gps.append ( emu )
         
     return gps
 
-def do_band_emulation ( ):
-    """
-    TODO: not even there yet!!!
-    """
-    pass
 
 def do_mv_emulation ( xtrain, xvalidate, train_brf, validate_brf ):
     N = xvalidate.shape[0]
@@ -185,91 +181,92 @@ def do_mv_emulation ( xtrain, xvalidate, train_brf, validate_brf ):
     return emu, rmse
 
 
+def create_parameter_trajectories ( state ):
+    """This function creates the parameter trajectories as in the 
+    RSE 2012 paper, just for testing"""
+    t = np.arange ( 1, 366 )/365.
+    parameter_grid = np.zeros ( (len(state.default_values.keys()), \
+         t.shape[0] ) )
+    for i, (parameter, default) in \
+        enumerate ( state.default_values.iteritems() ):
+            if parameter == "lai":
+                parameter_grid[i,:]= 0.21 + 3.51 * (np.sin(np.pi*t)**5)
+            elif parameter == "cab":
+                w = np.where(t<=0.5)[0]
+                parameter_grid[i,w] = 10.5 + 208.7*t[w]
+                w = np.where(t>0.5)[0]
+                parameter_grid[i,w] = 219.2 - 208.7*t[w]
+            elif parameter == "cw":
+                parameter_grid[i,:] =  0.068/5 + 0.01*np.sin(np.pi * t+0.1) *  \
+                 np.sin(6*np.pi*t + 0.1)
+            elif parameter == "xs1":
+                parameter_grid[i,:] =2.5*(0.2 + 0.18*np.sin(np.pi*t) * \
+                  np.sin(6*np.pi*t))
+            else:
+                parameter_grid[i,:] = default
+             
+    return parameter_grid
+              
+def create_observations ( state, parameter_grid, latitude, longitude, \
+        b_min = np.array( [ 620., 841, 459, 545, 1230, 1628, 2105] ), \
+        b_max = np.array( [ 670., 876, 479, 565, 1250, 1652, 2155] ) ):
+    """This function creates the observations for  a given temporal evolution
+    of parameters, loation, and bands. By default, we take only MODIS bands. 
+    The function does a number of other things:
+    1.- Calculate missing observations due to simulated cloud
+    2.- Add noise
+    TODO: There's a problem  with pyephem, gives silly solar altitudes!!!"""
+    wv = np.arange ( 400, 2501 )
+    band_pass = np.zeros((7,2101), dtype=np.bool)
+    n_bands = b_min.shape[0]
+    bw = np.zeros( n_bands )
+    bh = np.zeros( n_bands )
+    for i in xrange( n_bands ):
+        band_pass[i,:] = np.logical_and ( wv >= b_min[i], \
+                wv <= b_max[i] )
+        bw[i] = b_max[i] - b_min[i]
+        bh[i] = ( b_max[i] + b_min[i] )/2.
+    import ephem
+    o = ephem.Observer()
+    o.lat, o.long, o.date = latitude, longitude, "2011/1/1 10:30"
+    dd = o.date
 
-if __name__ == "__main__":
-    from collections import OrderedDict
-    from operators import *
-    FIXED = 1
-    CONSTANT = 2
-    VARIABLE = 3
-    # Create the state
-    # First, define the state configuration dictionary
+    every = 7
+    t = np.arange ( 1, 366 )
+    obs_doys = np.array ( [ i for i in t if i % every == 0 ] )
     
-    state_config = OrderedDict ()
-    
-    state_config['n'] = CONSTANT
-    state_config['cab'] = VARIABLE
-    state_config['car'] = CONSTANT
-    state_config['cbrown'] = VARIABLE
-    state_config['cw'] = VARIABLE
-    state_config['cm'] = VARIABLE
-    state_config['lai'] = VARIABLE
-    state_config['ala'] = CONSTANT
-    state_config['lidfb'] = FIXED
-    state_config['bsoil'] = CONSTANT
-    state_config['psoil'] = VARIABLE
-    state_config['hspot'] = CONSTANT
-    
-    
-    
-    
-    # Now define the default values
-    default_par = OrderedDict ()
-    default_par['n'] = 1.5
-    default_par['cab'] = 40.
-    default_par['car'] = 10.
-    default_par['cbrown'] = 0.01
-    default_par['cw'] = 0.018 # Say?
-    default_par['cm'] = 0.0065 # Say?
-    default_par['lai'] = 2
-    default_par['ala'] = 45.
-    default_par['lidfb'] = 0.
-    default_par['bsoil'] = 1.
-    default_par['psoil'] = 0.1
-    default_par['hspot'] = 0.01
-    
-    
-    # Define boundaries
-    #parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
-    #    'psoil', 'ala', 'lidfb', 'cab', 'car', 'cm', 'cw', 'lai' ]
-    parameter_min = OrderedDict()
-    parameter_max = OrderedDict()
-    
-    min_vals = [ 0.8, 0.2, 0.0, 0.0, 0.0043, 0.0017, 0.001, 0., 0., 0., 0., 0.001]
-    max_vals = [2.5, 77., 25., 1., 0.0713, 0.0331, 8., 90., 0., 2., 8., 0.999]
 
+    prop = 0.7
+    WINDOW = 3
+    weightings = np.repeat(1.0, WINDOW) / WINDOW
+    
+    xx = np.convolve(np.random.rand(len(t)*100),weightings,'valid')[WINDOW:WINDOW+len(t)]
 
+    maxx = sorted(xx)[:int(len(xx)*prop)]
+    mask = np.in1d(xx,maxx)
+    doys_nocloud = t[mask]
+    x = np.in1d ( obs_doys, doys_nocloud )
+    obs_doys = obs_doys[x]
+    vza = np.zeros_like ( obs_doys )
+    sza = np.zeros_like ( obs_doys )
+    raa = np.zeros_like ( obs_doys )
+    rho = np.zeros (( n_bands, obs_doys.shape[0] ))
+    sigma_obs = (0.01-0.004)*(bh-bh.min())/(bh.max()-bh.min())
+    sigma_obs += 0.004
+    for i,doy in enumerate(obs_doys):
+        j = doy - 1 # location in parameter_grid...
+        vza[i] = np.random.rand(1)*15. # 15 degs 
+        o.date = dd + doy
+        sun = ephem.Sun ( o )
+        sza[i] = np.random.rand(1)*35#90. - float(sun.alt )*180./np.pi
+        vaa = np.random.rand(1)*360.
+        saa = np.random.rand(1)*360.
+        raa[i] = vaa - saa
+        p = np.r_[parameter_grid[:, j], sza[i], vza[i], raa[i], 2 ]
+        r =  fixnan( np.atleast_2d ( prosail.run_prosail ( *p )) ).squeeze()
+        rho[:, i] = np.array ( [r[ band_pass[ii,:]].sum()/bw[ii] \
+            for ii in xrange(n_bands) ] )
+        rho[:, i] += np.random.randn ( n_bands )*sigma_obs
+    return obs_doys, vza, sza, raa, rho
         
-        
-    for i, param in enumerate ( state_config.keys() ):
-        parameter_min[param] = min_vals[i]
-        parameter_max[param] = max_vals[i]
-    # Define the state grid. In time in this case
-    state_grid = np.arange ( 1, 366 )
-    # Define parameter transformations
-    transformations = {
-        'lai': lambda x: np.exp ( -x/2. ), \
-        'cab': lambda x: np.exp ( -x/100. ), \
-        'car': lambda x: np.exp ( -x/100. ), \
-        'cw': lambda x: np.exp ( -50.*x ), \
-        'cm': lambda x: np.exp ( -100.*x ), \
-        'ala': lambda x: x/90. }
-    inv_transformations = {
-        'lai': lambda x: -2*np.log ( x ), \
-        'cab': lambda x: -100*np.log ( x ), \
-        'car': lambda x: -100*np.log( x ), \
-        'cw': lambda x: (-1/50.)*np.log ( x ), \
-        'cm': lambda x: (-1/100.)*np.log ( x ), \
-        'ala': lambda x: 90.*x }
-    
-    # Define the state
-    # L'etat, c'est moi
-    state = State ( state_config, state_grid, default_par, \
-        parameter_min, parameter_max )
-    # Set the transformations
-    state.set_transformations ( transformations, inv_transformations )
-    vza = [30.]
-    sza = [0.]
-    raa = [40.]
-    fnames = [ "/tmp/vza_30_sza_0_raa_40" ]
-    gps = create_emulators ( state, fnames, angles= [[30, 0, 40]])
+
