@@ -372,25 +372,21 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 # For this particular date, the relevant parameter is at location iloc
                 x_params[ j, : ] = x_dict[param]
             j += 1
-        
+        j = 0
         for itime, tstep in enumerate ( self.state_grid ):
             if self.mask[itime, 0] is False:
                 # No obs here
                 continue
-            vza, sza, raa = mask[itime, 1:]
-            vza_key = int (round( vza/5.)*5.)
-            sza_key = int (round( sza/5.)*5.)
-            raa_key = int (round( raa/5.)*5.)
-            the_emu = self.emulator[ "%d_%d_%d" % ( vza_key, sza_key, raa_key ) ]
+            
+            the_emu = self.emulators[ j ]
              
-            fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( \
-                x_params[:, itime] )
+            fwd_model, der_fwd_model = the_emu.predict ( x_params[:, itime] )
             
             # Now, the cost is straightforward
-            residuals = fwd_model - self.observations[ :, itime ] 
+            residuals = fwd_model - self.observations[ :, j] 
             cost += 0.5*residuals**2/self.bu**2
             the_derivatives[ :, itime] = der_fwd_model.dot ( residuals ) # or something
-
+            j += 1
         i = 0
         for param, typo in state_config.iteritems():
             der_cost[i] = the_derivatives[i,:].sum()
