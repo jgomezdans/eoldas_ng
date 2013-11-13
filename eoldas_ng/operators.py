@@ -165,9 +165,9 @@ class State ( object ):
          aggr_der_cost = x*0.0
          for op_name, the_op in self.operators.iteritems():
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
-             print op_name, cost, der_cost.shape, aggr_cost
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
+             print op_name, cost
          return aggr_cost, aggr_der_cost
          
 ##################################################################################        
@@ -339,7 +339,7 @@ class ObservationOperator ( object ):
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, observations, mask, emulator, bu, band_pass, bw ):
+    def __init__ ( self, state_grid, observations, mask, emulators, bu, band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -349,7 +349,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         try:
             self.n_bands, self.nt = self.observations.shape
         except:
-            raise ValueError, "Typically, obs should be n_bands * nx * ny"
+            raise ValueError, "Typically, obs should be n_bands * nt"
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
@@ -382,7 +382,6 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 # For this particular date, the relevant parameter is at location iloc
                 x_params[ j, : ] = x_dict[param]
             j += 1
-
         #HACK set raa to 0
         self.mask[:, -1 ] = 0
         #HACK set raa to 0
@@ -390,21 +389,29 @@ class ObservationOperatorTimeSeriesGP ( object ):
             if self.mask[itime, 0] == 0:
                 # No obs here
                 continue
+            # tag here is needed to look for the emulator for this geometry
             tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
             the_emu = self.emulators[ tag ]
             
-
+            # Now run the model forward and get partial derivatives
             fwd_model, der_fwd_model = the_emu.predict ( x_params[:, itime] )
-            rho = np.array ( [fwd_model[ \
-                self.band_pass[ii,:]].sum()/self.bw[ii] \
-                for ii in xrange(self.n_bands) ] )
-            der = np.array ( [ der_fwd_model[:, self.band_pass[ii]].sum(axis=1)/self.bw[ii] \
-                for ii in xrange(self.n_bands) ] ).T
-            # Now, the cost is straightforward
-            residuals = rho - self.observations[ :, j] 
+            # We need to apply bandpass functions to observations and derivatives
+            # This should be optional and based on whether self.band_pass etc
+            # are defined or not
+            if self.band_pass is not None:
+                rho = np.array ( [fwd_model[ \
+                    self.band_pass[ii,:]].sum()/self.bw[ii] \
+                    for ii in xrange(self.n_bands) ] )
+                der = np.array ( [ der_fwd_model[:, self.band_pass[ii]].sum(axis=1)/self.bw[ii] \
+                    for ii in xrange(self.n_bands) ] ).T
+            else:
+                rho = fwd_model
+                der = der_fwd_model
+            # Now, the cost is a straightforward calculation
+            residuals = rho - self.observations[ :, itime]  
             cost += 0.5*np.sum(residuals**2)/self.bu**2
             the_derivatives[ :, itime] = der.dot ( residuals ) # or something
-
+            
         i = 0
         for param, typo in state_config.iteritems():
             der_cost[i] = the_derivatives[i,:].sum()
