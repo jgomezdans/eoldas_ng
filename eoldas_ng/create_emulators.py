@@ -131,15 +131,10 @@ def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
     """
     distributions = []
     for param, minval in state.parameter_min.iteritems():
-        if param != "lidfb":
-            maxval = state.parameter_max[param]
-            distributions.append ( ss.uniform( loc=minval, \
+        maxval = state.parameter_max[param]
+        distributions.append ( ss.uniform( loc=minval, \
                 scale=(maxval-minval)) )
     samples = lhd ( dist=distributions, size=n_size )
-    # We need to add the lidfb parameter to the array
-    x = np.zeros(( n_size, 11))
-    x[:, :9] = samples[:,:9]
-    x[:, -2:] = samples[:, -2:]
     if angles is None:
         angles = np.array ( [angle \
             for angle in itertools.product ( szax, vzax, raax )] )
@@ -164,7 +159,7 @@ def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
         validate_brf = np.array ( [ prosail.run_prosail ( *s ) for s in V ] )
         train_brf = fixnan ( train_brf )
         validate_brf = fixnan ( validate_brf )
-        emu, rmse = do_mv_emulation ( x, validate, train_brf, validate_brf )
+        emu, rmse = do_mv_emulation ( samples, validate, train_brf, validate_brf )
         print "(RMSE:%g)" % ( rmse )
         #emu.dump_emulator ( fnames[i] )
         gps.append ( emu )
@@ -262,7 +257,7 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
         vaa = np.random.rand(1)*360.
         saa = np.random.rand(1)*360.
         raa[i] = vaa - saa
-        p = np.r_[parameter_grid[:, j], sza[i], vza[i], raa[i], 2 ]
+        p = np.r_[parameter_grid[:8,j],0,parameter_grid[8:, j], sza[i], vza[i], raa[i], 2 ]
         r =  fixnan( np.atleast_2d ( prosail.run_prosail ( *p )) ).squeeze()
         rho[:, i] = np.array ( [r[ band_pass[ii,:]].sum()/bw[ii] \
             for ii in xrange(n_bands) ] )
