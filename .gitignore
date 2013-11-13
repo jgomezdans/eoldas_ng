@@ -2,6 +2,7 @@
 *.py~
 *.npz
 *.pkl
+iterate.dat
 
 # C extensions
 *.so
