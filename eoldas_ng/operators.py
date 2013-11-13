@@ -376,11 +376,17 @@ class ObservationOperatorTimeSeriesGP ( object ):
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
-                x_params[ j, : ] = x_dict[param]
+                if self.transformation_dict.has_key ( param ):
+                    x_params[ j, : ] = self.transformation_dict[param] ( x_dict[param] )
+                else:
+                    x_params[ j, : ] = x_dict[param]
                 
             elif typo == VARIABLE:
-                # For this particular date, the relevant parameter is at location iloc
-                x_params[ j, : ] = x_dict[param]
+                if self.transformation_dict.has_key ( param ):
+                    x_params[ j, : ] = self.transformation_dict[param] ( x_dict[param] )
+                else:
+                    x_params[ j, : ] = x_dict[param]
+
             j += 1
         #HACK set raa to 0
         self.mask[:, -1 ] = 0
