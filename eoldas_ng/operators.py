@@ -95,11 +95,19 @@ class State ( object ):
         i = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT: # Constant value for all times
-                the_vector[i] = x_dict[param][0]
+                if self.transformation_dict.has_key ( param ):
+                    the_vector[i] = self.transformation_dict[param] ( \
+                        x_dict[param] )
+                else:
+                    the_vector[i] = x_dict[param]
                 i = i+1        
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
-                the_vector[i:(i + self.n_elems)] =  x_dict[param]
+                if self.transformation_dict.has_key ( param ):
+                    the_vector[i:(i + self.n_elems)] =  \
+                        self.transformation_dict[param] ( x_dict[param] )
+                else:
+                    the_vector[i:(i + self.n_elems)] =   x_dict[param] 
                 i += self.n_elems
         return the_vector 
     
@@ -331,7 +339,7 @@ class ObservationOperator ( object ):
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, observations, mask, emulator, bu ):
+    def __init__ ( self, state_grid, observations, mask, emulator, bu, band_pass, bw ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -345,8 +353,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
-        self.emulator = emulator
+        self.emulators = emulators
         self.bu = bu
+        self.band_pass = band_pass
+        self.bw = bw
         
     def der_cost ( self, x_dict, state_config ):
         i = 0
@@ -372,21 +382,29 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 # For this particular date, the relevant parameter is at location iloc
                 x_params[ j, : ] = x_dict[param]
             j += 1
-        j = 0
+
+        #HACK set raa to 0
+        self.mask[:, -1 ] = 0
+        #HACK set raa to 0
         for itime, tstep in enumerate ( self.state_grid ):
-            if self.mask[itime, 0] is False:
+            if self.mask[itime, 0] == 0:
                 # No obs here
                 continue
+            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+            the_emu = self.emulators[ tag ]
             
-            the_emu = self.emulators[ j ]
-             
+
             fwd_model, der_fwd_model = the_emu.predict ( x_params[:, itime] )
-            
+            rho = np.array ( [fwd_model[ \
+                self.band_pass[ii,:]].sum()/self.bw[ii] \
+                for ii in xrange(self.n_bands) ] )
+            der = np.array ( [ der_fwd_model[:, self.band_pass[ii]].sum(axis=1)/self.bw[ii] \
+                for ii in xrange(self.n_bands) ] ).T
             # Now, the cost is straightforward
-            residuals = fwd_model - self.observations[ :, j] 
-            cost += 0.5*residuals**2/self.bu**2
-            the_derivatives[ :, itime] = der_fwd_model.dot ( residuals ) # or something
-            j += 1
+            residuals = rho - self.observations[ :, j] 
+            cost += 0.5*np.sum(residuals**2)/self.bu**2
+            the_derivatives[ :, itime] = der.dot ( residuals ) # or something
+
         i = 0
         for param, typo in state_config.iteritems():
             der_cost[i] = the_derivatives[i,:].sum()
@@ -397,7 +415,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
          
 class ObservationOperatorImageGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, observations, mask, emulator, bu ):
+    def __init__ ( self, state_grid, observations, mask, emulators, bu ):
         """
         """
         
@@ -409,7 +427,7 @@ class ObservationOperatorImageGP ( object ):
         self.mask = mask
         assert ( self.ny, self.nx ) == mask.shape
         self.state_grid = state_grid
-        self.emulator = emulator
+        self.emulators = emulators
         self.bu = bu
         
     def der_cost ( self, x_dict, state_config ):
