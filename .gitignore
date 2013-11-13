@@ -1,4 +1,7 @@
 *.py[cod]
+*.py~
+*.npz
+*.pkl
 
 # C extensions
 *.so
