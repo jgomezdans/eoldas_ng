@@ -28,7 +28,7 @@ def fixnan(x):
     x[i] = sample
   return x
 
-def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
+def create_emulators ( state, fnames, random=True, v_size=300, n_size=250, angles=None, \
        vzax = np.arange ( 5, 60, 5 ), szax = np.arange ( 5, 60, 5 ), \
        raax = np.arange (-180, 180, 30 )  ):
     """
@@ -39,11 +39,18 @@ def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
     TODO completeme!!!!!    
     """
     distributions = []
-    for param, minval in state.parameter_min.iteritems():
-        maxval = state.parameter_max[param]
+    for i, (param, minval ) in enumerate ( state.parameter_min.iteritems() ):
+        maxval = state.bounds[i][1]
+        minval = state.bounds[i][0]
         distributions.append ( ss.uniform( loc=minval, \
                 scale=(maxval-minval)) )
-    samples = lhd ( dist=distributions, size=n_size )
+    if random:
+        samples = []
+        for d in distributions:
+            samples.append ( d.rvs( n_size ) )
+        samples = np.array ( samples ).T
+    else:
+        samples = lhd ( dist=distributions, size=n_size )
     if angles is None:
         angles = np.array ( [angle \
             for angle in itertools.product ( szax, vzax, raax )] )
@@ -52,18 +59,36 @@ def create_emulators ( state, fnames, v_size=200, n_size=200, angles=None, \
         validate.append ( d.rvs( v_size ) )
     validate = np.array ( validate ).T
     V = np.zeros ((v_size, 16))
-    V[:, :9] = validate[:, :9]
-    V[:, 10:12] = validate[:, -2:]
+    V[:, :8] = validate[:, :8]
+    V[:, 9:11] = validate[:, 8:]
+    V[:, 11] = 0.01
     V[:, -1] = 2
     S = np.zeros ((n_size, 16))
-    S[:, :9] = samples[:, :9]
-    S[:, 10:12] = samples[:, -2:]
+    S[:, :8] = samples[:, :8]
+    S[:, 9:11] = samples[:, 8:]
+    S[:, 11] = 0.01 # hotspot
     S[:, -1] = 2
+    #import pdb; pdb.set_trace()
+    #tsamples =  np.zeros_like ( samples )
+    #tvalidate = np.zeros_like ( validate )
+    #validate1 = dict( zip(state.parameter_min.keys(), validate.tolist()))
+    #samples1 = dict( zip(state.parameter_min.keys(), samples.tolist()))
+    
+    #for i,p in enumerate ( state.parameter_min.keys() ):
+        #if state.transformation_dict.has_key(p):
+            #tvalidate[i, :] = \
+                #state.transformation_dict[p] ( np.array(validate1[p]))
+            #tsamples[i, :] = \
+                #state.transformation_dict[p] ( np.array(samples1[p]))
+        #else:
+            #tvalidate[i, :] = np.array(validate1[p] )
+            #tsamples[i, :] = np.array(samples1[p] )
 
     gps = []
     for i, angle in enumerate ( angles ):
         S[:, 12:15] = angle 
         V[:, 12:15] = angle
+        
         train_brf = np.array ( [ prosail.run_prosail ( *s ) for s in S ] )
         validate_brf = np.array ( [ prosail.run_prosail ( *s ) for s in V ] )
         train_brf = fixnan ( train_brf )
@@ -159,14 +184,14 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
     sigma_obs += 0.004
     for i,doy in enumerate(obs_doys):
         j = doy - 1 # location in parameter_grid...
-        vza[i] = np.random.rand(1)*15. # 15 degs 
+        vza[i] = 15.#np.random.rand(1)*15. # 15 degs 
         o.date = dd + doy
         sun = ephem.Sun ( o )
-        sza[i] = np.random.rand(1)*35#90. - float(sun.alt )*180./np.pi
+        sza[i] = 15.#np.random.rand(1)*35#90. - float(sun.alt )*180./np.pi
         vaa = np.random.rand(1)*360.
         saa = np.random.rand(1)*360.
-        raa[i] = vaa - saa
-        p = np.r_[parameter_grid[:8,j],0,parameter_grid[8:, j], sza[i], vza[i], raa[i], 2 ]
+        raa[i] = 0.0#vaa - saa
+        p = np.r_[parameter_grid[:8,j],0,parameter_grid[8:, j], 0.01,sza[i], vza[i], raa[i], 2 ]
         r =  fixnan( np.atleast_2d ( prosail.run_prosail ( *p )) ).squeeze()
         rho[:, i] = np.array ( [r[ band_pass[ii,:]].sum()/bw[ii] \
             for ii in xrange(n_bands) ] )
