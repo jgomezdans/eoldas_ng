@@ -28,7 +28,7 @@ def fixnan(x):
     x[i] = sample
   return x
 
-def create_emulators ( state, fnames, random=True, v_size=300, n_size=250, angles=None, \
+def create_emulators ( state, fnames, random=False, v_size=300, n_size=75, angles=None, \
        vzax = np.arange ( 5, 60, 5 ), szax = np.arange ( 5, 60, 5 ), \
        raax = np.arange (-180, 180, 30 )  ):
     """
@@ -59,30 +59,21 @@ def create_emulators ( state, fnames, random=True, v_size=300, n_size=250, angle
         validate.append ( d.rvs( v_size ) )
     validate = np.array ( validate ).T
     V = np.zeros ((v_size, 16))
-    V[:, :8] = validate[:, :8]
     V[:, 9:11] = validate[:, 8:]
     V[:, 11] = 0.01
     V[:, -1] = 2
     S = np.zeros ((n_size, 16))
-    S[:, :8] = samples[:, :8]
     S[:, 9:11] = samples[:, 8:]
     S[:, 11] = 0.01 # hotspot
     S[:, -1] = 2
-    #import pdb; pdb.set_trace()
-    #tsamples =  np.zeros_like ( samples )
-    #tvalidate = np.zeros_like ( validate )
-    #validate1 = dict( zip(state.parameter_min.keys(), validate.tolist()))
-    #samples1 = dict( zip(state.parameter_min.keys(), samples.tolist()))
-    
-    #for i,p in enumerate ( state.parameter_min.keys() ):
-        #if state.transformation_dict.has_key(p):
-            #tvalidate[i, :] = \
-                #state.transformation_dict[p] ( np.array(validate1[p]))
-            #tsamples[i, :] = \
-                #state.transformation_dict[p] ( np.array(samples1[p]))
-        #else:
-            #tvalidate[i, :] = np.array(validate1[p] )
-            #tsamples[i, :] = np.array(samples1[p] )
+    for i,k in enumerate ( state.parameter_max.keys()[:8]):
+        if state.invtransformation_dict.has_key(k):
+            S[:, i] = state.invtransformation_dict[k](samples[:, i] )
+            V[:, i] = state.invtransformation_dict[k](validate[:, i] )
+            
+        else:
+            S[:, i] = samples[:, i]
+            V[:, i] = validate[:, i]
 
     gps = []
     for i, angle in enumerate ( angles ):
@@ -98,7 +89,7 @@ def create_emulators ( state, fnames, random=True, v_size=300, n_size=250, angle
         #emu.dump_emulator ( fnames[i] )
         gps.append ( emu )
         
-    return gps
+    return gps, samples, validate
 
 
 def do_mv_emulation ( xtrain, xvalidate, train_brf, validate_brf ):
