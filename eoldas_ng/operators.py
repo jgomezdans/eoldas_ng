@@ -167,7 +167,6 @@ class State ( object ):
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
-             print op_name, cost
          return aggr_cost, aggr_der_cost
          
 ##################################################################################        
