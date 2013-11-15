@@ -11,6 +11,8 @@ import numpy as np
 import scipy.optimize
 from collections import OrderedDict
 
+import matplotlib.pyplot as plt
+
 FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
@@ -156,7 +158,9 @@ class State ( object ):
             x0 = self.pack_from_dict ( x0 )
             
         retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1 )
-        return retval
+        retval_dict = self._unpack_to_dict ( retval[0] )
+        print retval
+        return retval_dict
      
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
@@ -192,6 +196,7 @@ class Prior ( object ):
         """Calculate the cost function and its partial derivatives for the prior object
         
         Takes a parameter dictionary, and a state configuration dictionary"""
+        
         i = 0
         cost = 0
         
@@ -203,13 +208,14 @@ class Prior ( object ):
                 n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
+        
         for param, typo in state_config.iteritems():
             
             if typo == FIXED: # Default value for all times
                 # Doesn't do anything so we just skip
                 pass
                 
-            if typo == CONSTANT: # Constant value for all times
+            elif typo == CONSTANT: # Constant value for all times
                 
                 cost = cost + 0.5*( x_dict[param] - self.mu[param])**2*self.inv_cov[param]
                 der_cost[i] = ( x_dict[param] - self.mu[param])*self.inv_cov[param]
@@ -223,10 +229,10 @@ class Prior ( object ):
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
                 cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( self.inv_cov[param] )
                 cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - self.mu[param])).sum()
-                der_cost[i:(i+n_elems)] = cost_m                                         
+                der_cost[i:(i+n_elems)] = -cost_m                                         
                 
                 i += n_elems
-                
+        
         return cost, der_cost
     
     def der_der_cost ( self ):
@@ -338,12 +344,15 @@ class ObservationOperator ( object ):
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, observations, mask, emulators, bu, band_pass=None, bw=None ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
-         (mask, vza, sza, raa) array
+         (mask, vza, sza, raa) array.
+         
+         
         """
+        self.state = state
         self.observations = observations
         try:
             self.n_bands, self.nt = self.observations.shape
@@ -358,15 +367,24 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.bw = bw
         
     def der_cost ( self, x_dict, state_config ):
+        """The cost function and its partial derivatives. One important thing
+        to note is that GPs have been parameterised in transformed space, 
+        whereas `x_dict` is in "real space". So when we go over the parameter
+        dictionary, we need to transform back to linear units. TODO Clearly, it
+        might be better to have cost functions that report whether they need
+        a dictionary in true or transformed units!
+        
+        """
         i = 0
         cost = 0.
         n = 0
-        
-        for typo in x_dict.iteritems():
-            if np.isscalar ( typo[1] ):
-                n = n + 1
-            else:
-                n = n + typo[1].size
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
         der_cost = np.zeros ( n )
         x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
         j = 0
@@ -375,21 +393,21 @@ class ObservationOperatorTimeSeriesGP ( object ):
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
-                if self.transformation_dict.has_key ( param ):
-                    x_params[ j, : ] = self.transformation_dict[param] ( x_dict[param] )
+                if self.state.transformation_dict.has_key ( param ):
+                    x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 else:
                     x_params[ j, : ] = x_dict[param]
                 
             elif typo == VARIABLE:
-                if self.transformation_dict.has_key ( param ):
-                    x_params[ j, : ] = self.transformation_dict[param] ( x_dict[param] )
+                if self.state.transformation_dict.has_key ( param ):
+                    x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 else:
                     x_params[ j, : ] = x_dict[param]
 
             j += 1
-        #HACK set raa to 0
-        self.mask[:, -1 ] = 0
-        #HACK set raa to 0
+        
+        #self.mask[:, -1 ] = 0
+        
         for itime, tstep in enumerate ( self.state_grid ):
             if self.mask[itime, 0] == 0:
                 # No obs here
@@ -400,6 +418,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
             
             # Now run the model forward and get partial derivatives
             fwd_model, der_fwd_model = the_emu.predict ( x_params[:, itime] )
+            
             # We need to apply bandpass functions to observations and derivatives
             # This should be optional and based on whether self.band_pass etc
             # are defined or not
@@ -414,8 +433,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 der = der_fwd_model
             # Now, the cost is a straightforward calculation
             residuals = rho - self.observations[ :, itime]  
-            cost += 0.5*np.sum(residuals**2)/self.bu**2
-            the_derivatives[ :, itime] = der.dot ( residuals ) # or something
+            cost += 0.5*np.sum((residuals**2)/self.bu**2)
+            the_derivatives[ :, itime] = der.dot ( residuals/self.bu**2 ) 
             
         i = 0
         for param, typo in state_config.iteritems():
@@ -514,276 +533,3 @@ class ObservationOperatorImageGP ( object ):
         return cost, der_cost
 
                 
-
-
-
-##################################################################################        
-##################################################################################              
-#if __name__ == "__main__":
-
-def test_1d_identity ():
-    # A time problem using an identity operator, e.g. NDVI smoothing
-    state_config = OrderedDict ()
-    state_config [ 'magnitude' ] = VARIABLE
-    
-    default_par = OrderedDict ()
-    default_par [ 'magnitude' ] = 0.5
-    parameter_min = OrderedDict ()
-    parameter_max = OrderedDict ()
-    parameter_min [ 'magnitude' ] = 0.
-    parameter_max [ 'magnitude' ] = 1.
-    
-    state_grid = np.arange ( 1, 201 )
-    
-    state = State ( state_config, state_grid, default_par, \
-        parameter_min, parameter_max )
-
-            
-    mu_prior = OrderedDict ()
-    prior_inv_cov = OrderedDict ()
-    mu_prior[ 'magnitude' ] = np.array([0.5])
-    prior_inv_cov [ 'magnitude' ] = np.array([(1.96/0.5)**2])
-    
-    prior = Prior ( mu_prior, prior_inv_cov )
-    
-
-    regularisation = TemporalSmoother ( state_grid, order=1, gamma=200 )
-    
-    
-    obs = np.loadtxt("/home/ucfajlg/Data/python/eoldas_package/" + \
-        "eoldas_examples/data/Identity/random_ndvi1.dat" )[:,2]
-    mask = np.ones_like ( obs, dtype=np.bool )
-    observations = ObservationOperator( obs, 0.1, mask )
-    
-
-    state.add_operator ( "prior", prior )
-    state.add_operator ( "smoother", regularisation )
-    state.add_operator ( "observations", observations )
-    
-
-def test_1d ():
-
-    # Test the above classes, also demonstrate set up
-    
-    
-  
-    
-    # First, define the state configuration dictionary
-    
-    state_config = OrderedDict ()
-    
-    state_config['n'] = CONSTANT
-    state_config['cab'] = VARIABLE
-    state_config['car'] = CONSTANT
-    state_config['cbrown'] = VARIABLE
-    state_config['cw'] = VARIABLE
-    state_config['cm'] = VARIABLE
-    state_config['lai'] = VARIABLE
-    state_config['ala'] = CONSTANT
-    state_config['lidfb'] = FIXED
-    state_config['bsoil'] = CONSTANT
-    state_config['psoil'] = VARIABLE
-    state_config['hspot'] = CONSTANT
-    
-    
-    
-    
-    # Now define the default values
-    default_par = OrderedDict ()
-    default_par['n'] = 1.5
-    default_par['cab'] = 40.
-    default_par['car'] = 10.
-    default_par['cbrown'] = 0.01
-    default_par['cw'] = 0.018 # Say?
-    default_par['cm'] = 0.0065 # Say?
-    default_par['lai'] = 2
-    default_par['ala'] = 45.
-    default_par['lidfb'] = 0.
-    default_par['bsoil'] = 1.
-    default_par['psoil'] = 0.1
-    default_par['hspot'] = 0.01
-    
-    
-    # Define boundaries
-    #parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
-    #    'psoil', 'ala', 'lidfb', 'cab', 'car', 'cm', 'cw', 'lai' ]
-    parameter_min = OrderedDict()
-    parameter_max = OrderedDict()
-    
-    min_vals = [ 0.8, 0.2, 0.0, 0.0, 0.0043, 0.0017, 0.001, 0., 0., 0., 0., 0.001]
-    max_vals = [2.5, 77., 25., 1., 0.0713, 0.0331, 8., 90., 0., 2., 8., 0.999]
-
-
-        
-        
-    for i, param in enumerate ( state_config.keys() ):
-        parameter_min[param] = min_vals[i]
-        parameter_max[param] = max_vals[i]
-    # Define the state grid. In time in this case
-    state_grid = np.arange ( 1, 366 )
-    # Define parameter transformations
-    transformations = {
-        'lai': lambda x: np.exp ( -x/2. ), \
-        'cab': lambda x: np.exp ( -x/100. ), \
-        'car': lambda x: np.exp ( -x/100. ), \
-        'cw': lambda x: np.exp ( -50.*x ), \
-        'cm': lambda x: np.exp ( -100.*x ), \
-        'ala': lambda x: x/90. }
-    inv_transformations = {
-        'lai': lambda x: -2*np.log ( x ), \
-        'cab': lambda x: -100*np.log ( x ), \
-        'car': lambda x: -100*np.log( x ), \
-        'cw': lambda x: (-1/50.)*np.log ( x ), \
-        'cm': lambda x: (-1/100.)*np.log ( x ), \
-        'ala': lambda x: 90.*x }
-    
-    # Define the state
-    # L'etat, c'est moi
-    state = State ( state_config, state_grid, default_par, \
-        parameter_min, parameter_max )
-    # Set the transformations
-    state.set_transformations ( transformations, inv_transformations )
-
-    
-    bsoil = 1.2
-    cbrown = 0.4*(1-np.cos(2*np.pi*state_grid/365.))
-    hspot = 0.01
-    n = 2.1
-    psoil = 0.5*(1-np.cos(2*np.pi*state_grid/365.))
-    ala = state.transformation_dict['ala'](45.)
-    cab = state.transformation_dict['cab'](80*(1-np.cos(2*np.pi*state_grid/365.)))
-    car = state.transformation_dict['car'](1.)
-    cm = state.transformation_dict['cm'](0.0017*(1-np.cos(2*np.pi*state_grid/365.)))
-    cw = state.transformation_dict['cw'](0.03*(1-np.cos(2*np.pi*state_grid/365.)))
-    lai = state.transformation_dict['lai'](4.0*(1-np.cos(2*np.pi*state_grid/365.)))
-    
-    x = np.r_[ bsoil, cbrown, hspot, n, psoil, ala, cab, car, cm, cw, lai ]
-    # Get the original responses by
-    # lai_traj = state._unpack_to_dict(x )['lai']
-    s = state._unpack_to_dict ( x )
-
-            
-    mu_prior = OrderedDict ()
-    prior_inv_cov = OrderedDict ()
-    for param in parameter_names:
-        mu_prior[param] = np.array([default_par[param]])
-        prior_inv_cov[param] = np.array(parameter_max[param] - parameter_min[param]*0.4)
-    prior = Prior ( mu_prior, prior_inv_cov )
-    cost, der_cost = prior.der_cost ( s, state_config )
-    
-    
-    gamma = 10.
-    smoother_time = TemporalSmoother ( state_grid, gamma=gamma)
-    cost, der_cost = smoother_time.der_cost ( s, state_config )
-
-def test_2d():
-    # Test the above classes, also demonstrate set up
-    
-    # First, define the state configuration dictionary
-    state_config = OrderedDict ()
-    state_config['bsoil'] = CONSTANT
-    state_config['cbrown'] = CONSTANT
-    state_config['hspot'] = CONSTANT
-    state_config['n'] = CONSTANT
-    state_config['psoil'] = CONSTANT
-    state_config['ala'] = CONSTANT
-    state_config['cab'] = VARIABLE
-    state_config['car'] = CONSTANT
-    state_config['cm'] = CONSTANT
-    state_config['cw'] = CONSTANT
-    state_config['lai'] = VARIABLE
-    
-    # Now define the default values
-    default_par = OrderedDict ()
-    default_par['bsoil'] = 1.
-    default_par['cbrown'] = 0.01
-    default_par['hspot'] = 0.01
-    default_par['n'] = 1.5
-    default_par['psoil'] = 0.1
-    default_par['ala'] = 45.
-    default_par['cab'] = 40.
-    default_par['car'] = 10.
-    default_par['cm'] = 0.0065 # Say?
-    default_par['cw'] = 0.018 # Say?
-    default_par['lai'] = 2
-    # Define boundaries
-    parameter_names = [ 'bsoil', 'cbrown', 'hspot', 'n', \
-        'psoil', 'ala', 'cab', 'car', 'cm', 'cw', 'lai' ]
-    parameter_min = OrderedDict()
-    parameter_max = OrderedDict()
-    min_vals = [ 0., 0., 0.001, 0.8, 0., 0., 0.2, 0., 0.0017, 0.0043, 0.001 ]
-    max_vals = [ 2., 1., 0.999, 2.5, 1., 90., 77., 25., 0.0331, 0.0713, 15 ]
-    for i, param in enumerate ( parameter_names ):
-        parameter_min[param] = min_vals[i]
-        parameter_max[param] = max_vals[i]
-    # Define the state grid. In space in this case
-    state_grid = np.arange ( 1, 256*256 + 1).reshape((256,256))
-    
-    # Define parameter transformations
-    transformations = {
-        'lai': lambda x: np.exp ( -x/2. ), \
-        'cab': lambda x: np.exp ( -x/100. ), \
-        'car': lambda x: np.exp ( -x/100. ), \
-        'cw': lambda x: np.exp ( -50.*x ), \
-        'cm': lambda x: np.exp ( -100.*x ), \
-        'ala': lambda x: x/90. }
-    inv_transformations = {
-        'lai': lambda x: -2*np.log ( x ), \
-        'cab': lambda x: -100*np.log ( x ), \
-        'car': lambda x: -100*np.log( x ), \
-        'cw': lambda x: (-1/50.)*np.log ( x ), \
-        'cm': lambda x: (-1/100.)*np.log ( x ), \
-        'ala': lambda x: 90.*x }
-    
-    # Define the state
-    # L'etat, c'est moi
-    state = State ( state_config, state_grid, default_par, \
-        parameter_min, parameter_max )
-    # Set the transformations
-    state.set_transformations ( transformations, inv_transformations )
-
-    import matplotlib
-    import numpy as np
-    import matplotlib.mlab as mlab
-
-    
-    
-    delta = 6./256.
-    x = np.arange(-3.0, 3.0, delta)
-    y = np.arange(-3.0, 3.0, delta)
-    X, Y = np.meshgrid(x, y)
-    Z1 = mlab.bivariate_normal(X, Y, 1.0, 1.0, 0.0, 0.0)
-    Z2 = mlab.bivariate_normal(X, Y, 1.5, 0.5, 1, 1)
-    # difference of Gaussians
-    Z = 10.0 * (Z2 - Z1)
-    
-    bsoil = 1.2
-    cbrown = 0.8#*(1-np.cos(2*np.pi*state_grid/365.))
-    hspot = 0.01
-    n = 2.1
-    psoil = 1.0 # *(1-np.cos(2*np.pi*state_grid/365.))
-    ala = state.transformation_dict['ala'](45.)
-    
-    car = state.transformation_dict['car'](1.)
-    cm = state.transformation_dict['cm'](0.0017)#*(1-np.cos(2*np.pi*state_grid/365.)))
-    cw = state.transformation_dict['cw'](0.03)#*(1-np.cos(2*np.pi*state_grid/365.)))
-    cab = state.transformation_dict['cab'](40*(0.5*Z - Z.min()))
-    lai = state.transformation_dict['lai'](1.5*(Z - Z.min()))
-    x = np.r_[ bsoil, cbrown, hspot, n, psoil, ala, cab.flatten(), car, cm, cw, lai.flatten() ]
-    # Get the original responses by
-    # lai_traj = state._unpack_to_dict(x )['lai']
-    s = state._unpack_to_dict ( x )
-
-            
-    mu_prior = OrderedDict ()
-    prior_inv_cov = OrderedDict ()
-    for param in parameter_names:
-        mu_prior[param] = np.array([default_par[param]])
-        prior_inv_cov[param] = np.array(parameter_max[param] - parameter_min[param]*0.4)
-    prior = Prior ( mu_prior, prior_inv_cov )
-    cost, der_cost = prior.der_cost ( s, state_config )
-    
-    
-    gamma = 10.
-    smoother_time = TemporalSmoother ( state_grid, gamma=gamma)
-    cost, der_cost = smoother_time.der_cost ( s, state_config )
