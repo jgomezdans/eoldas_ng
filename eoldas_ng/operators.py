@@ -436,11 +436,16 @@ class ObservationOperatorTimeSeriesGP ( object ):
             cost += 0.5*np.sum((residuals**2)/self.bu**2)
             the_derivatives[ :, itime] = der.dot ( residuals/self.bu**2 ) 
             
-        i = 0
-        for param, typo in state_config.iteritems():
-            der_cost[i] = the_derivatives[i,:].sum()
-            i += 1
-            
+        j = 0
+        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+            if typo == CONSTANT:
+                der_cost[j] = the_derivatives[i, 0]
+                j += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                j += n_elems
+               
         return cost, der_cost
         
          
