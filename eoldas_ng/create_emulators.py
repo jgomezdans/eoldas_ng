@@ -111,17 +111,17 @@ def create_parameter_trajectories ( state ):
         enumerate ( state.default_values.iteritems() ):
             if parameter == "lai":
                 parameter_grid[i,:]= 0.21 + 3.51 * (np.sin(np.pi*t)**5)
-            elif parameter == "cab":
-                w = np.where(t<=0.5)[0]
-                parameter_grid[i,w] = 10.5 + 208.7*t[w]
-                w = np.where(t>0.5)[0]
-                parameter_grid[i,w] = 219.2 - 208.7*t[w]
-            elif parameter == "cw":
-                parameter_grid[i,:] =  0.068/5 + 0.01*np.sin(np.pi * t+0.1) *  \
-                 np.sin(6*np.pi*t + 0.1)
-            elif parameter == "xs1":
-                parameter_grid[i,:] =2.5*(0.2 + 0.18*np.sin(np.pi*t) * \
-                  np.sin(6*np.pi*t))
+            #elif parameter == "cab":
+                #w = np.where(t<=0.5)[0]
+                #parameter_grid[i,w] = 10.5 + 208.7*t[w]
+                #w = np.where(t>0.5)[0]
+                #parameter_grid[i,w] = 219.2 - 208.7*t[w]
+            #elif parameter == "cw":
+                #parameter_grid[i,:] =  0.068/5 + 0.01*np.sin(np.pi * t+0.1) *  \
+                 #np.sin(6*np.pi*t + 0.1)
+            #elif parameter == "xs1":
+                #parameter_grid[i,:] =2.5*(0.2 + 0.18*np.sin(np.pi*t) * \
+                  #np.sin(6*np.pi*t))
             else:
                 parameter_grid[i,:] = default
              
@@ -170,9 +170,10 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
     vza = np.zeros_like ( obs_doys )
     sza = np.zeros_like ( obs_doys )
     raa = np.zeros_like ( obs_doys )
-    rho = np.zeros (( n_bands, obs_doys.shape[0] ))
+    rho = np.zeros (( len(bw), obs_doys.shape[0] ))
     sigma_obs = (0.01-0.004)*(bh-bh.min())/(bh.max()-bh.min())
     sigma_obs += 0.004
+    
     for i,doy in enumerate(obs_doys):
         j = doy - 1 # location in parameter_grid...
         vza[i] = 15.#np.random.rand(1)*15. # 15 degs 
@@ -187,6 +188,6 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
         rho[:, i] = np.array ( [r[ band_pass[ii,:]].sum()/bw[ii] \
             for ii in xrange(n_bands) ] )
         rho[:, i] += np.random.randn ( n_bands )*sigma_obs
-    return obs_doys, vza, sza, raa, rho
+    return obs_doys, vza, sza, raa, rho 
         
 
