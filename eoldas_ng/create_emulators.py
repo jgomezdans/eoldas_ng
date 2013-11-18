@@ -28,7 +28,7 @@ def fixnan(x):
     x[i] = sample
   return x
 
-def create_emulators ( state, fnames, random=False, v_size=300, n_size=75, angles=None, \
+def create_emulators ( state, fnames, random=False, v_size=300, n_size=375, angles=None, \
        vzax = np.arange ( 5, 60, 5 ), szax = np.arange ( 5, 60, 5 ), \
        raax = np.arange (-180, 180, 30 )  ):
     """
