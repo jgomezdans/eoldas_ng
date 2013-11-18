@@ -109,7 +109,7 @@ if __name__ == "__main__":
         mu_prior[param] = np.array([default_par[param]])
         prior_inv_cov[param] = np.array([1])
             #parameter_max[param] - parameter_min[param]*0.4)
-    prior = Prior ( mu_prior, prior_inv_cov )
+        prior = Prior ( mu_prior, prior_inv_cov )
     
     x_dict = {}
     for param in state.parameter_min.iterkeys():
@@ -141,17 +141,17 @@ if __name__ == "__main__":
     vzax = np.arange ( 0, 20, 5 )
     angles = [a  for a in itertools.product ( szax, vzax, [0] ) ]
     angles = [ [ 15, 15, 0] ]
-    #emulators,  samples, validate = create_emulators ( state, fnames, angles=angles )   
-    #for i,(s,v,r) in enumerate(angles):     
-        #fname = "%02d_sza_%02d_vza_000_raa" % (s,v)
-        #emulators[i].dump_emulator(fname)
+#    emulators,  samples, validate = create_emulators ( state, fnames, angles=angles )   
+#    for i,(s,v,r) in enumerate(angles):     
+#        fname = "%02d_sza_%02d_vza_000_raa" % (s,v)
+#        emulators[i].dump_emulator(fname)
     emulators = {}
     for i,(s,v,r) in enumerate(angles):     
         fname = "%02d_sza_%02d_vza_000_raa.npz" % (s,v)
         emulators[(v,s)]= MultivariateEmulator ( dump=fname )
         
 
-
+    
     rho_big = np.zeros(( 7,365))
     mask = np.zeros(( 365, 4))
     time_grid = np.arange ( 1, 366 )
@@ -179,7 +179,15 @@ if __name__ == "__main__":
         bh[i] = ( b_max[i] + b_min[i] )/2.
 
 
-    obs = ObservationOperatorTimeSeriesGP( time_grid, state, rho_big, mask, emulators, bu, band_pass, bw )
+    idoy = doys[0]
+    rhos = np.zeros((1, 365))
+    M = np.zeros((365, 4))
+    M[idoy, :] = mask[idoy,:]
+    rhos[ :, idoy] = rho_big[1, idoy]
+    bu = bu[1]
+    band_pass = np.atleast_2d ( [ band_pass[1] ] )
+    bw = np.atleast_2d([bw[1]])
+    obs = ObservationOperatorTimeSeriesGP( time_grid, state, rhos, M, emulators, bu, band_pass, bw )
 
     state.add_operator ( "Observations", obs )     
     
@@ -190,6 +198,7 @@ if __name__ == "__main__":
         if state.state_config[k] == VARIABLE:
             x_dict[k] =  ( parameter_grid[i, :] )
         else:
-            x_dict[k] = parameter_grid[i, 0]*0+ mu_prior[k]
+            x_dict[k] = parameter_grid[i, 0]#*0+ mu_prior[k]
     
     X = state.pack_from_dict ( x_dict )
+
