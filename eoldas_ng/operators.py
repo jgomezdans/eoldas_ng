@@ -17,6 +17,18 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
+def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
+        f, g = gp.predict ( x )
+        cost = 0
+        der_cost = []
+        for i in xrange( len(band_pass) ):
+            d = f[band_pass[i]].sum()/bw[i] - R[i]
+            derivs = d*g[:, band_pass[i] ]/(band_unc[i])**2
+            cost += 0.5*np.sum(d*d)/(band_unc[i])**2
+            der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
+        return cost, np.array( der_cost ).squeeze()
+
+
 class State ( object ):
     
     """A state-definition class
@@ -229,7 +241,7 @@ class Prior ( object ):
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
                 cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( self.inv_cov[param] )
                 cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - self.mu[param])).sum()
-                der_cost[i:(i+n_elems)] = -cost_m                                         
+                der_cost[i:(i+n_elems)] = cost_m                                         
                 
                 i += n_elems
         
@@ -367,6 +379,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.bw = bw
         
     def der_cost ( self, x_dict, state_config ):
+
         """The cost function and its partial derivatives. One important thing
         to note is that GPs have been parameterised in transformed space, 
         whereas `x_dict` is in "real space". So when we go over the parameter
@@ -406,8 +419,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
 
             j += 1
         
-        #self.mask[:, -1 ] = 0
-        
+
         for itime, tstep in enumerate ( self.state_grid ):
             if self.mask[itime, 0] == 0:
                 # No obs here
@@ -416,25 +428,11 @@ class ObservationOperatorTimeSeriesGP ( object ):
             tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
             the_emu = self.emulators[ tag ]
             
-            # Now run the model forward and get partial derivatives
-            fwd_model, der_fwd_model = the_emu.predict ( x_params[:, itime] )
-            
-            # We need to apply bandpass functions to observations and derivatives
-            # This should be optional and based on whether self.band_pass etc
-            # are defined or not
-            if self.band_pass is not None:
-                rho = np.array ( [fwd_model[ \
-                    self.band_pass[ii,:]].sum()/self.bw[ii] \
-                    for ii in xrange(self.n_bands) ] )
-                der = np.array ( [ der_fwd_model[:, self.band_pass[ii]].sum(axis=1)/self.bw[ii] \
-                    for ii in xrange(self.n_bands) ] ).T
-            else:
-                rho = fwd_model
-                der = der_fwd_model
-            # Now, the cost is a straightforward calculation
-            residuals = rho - self.observations[ :, itime]  
-            cost += 0.5*np.sum((residuals**2)/self.bu**2)
-            the_derivatives[ :, itime] = der.dot ( residuals/self.bu**2 ) 
+            this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
+                 self.observations[:, itime], self.bu, self.band_pass, \
+                 self.bw )
+            cost += this_cost
+            the_derivatives[ :, itime] = this_der.sum( axis=0 )
             
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
