@@ -189,7 +189,7 @@ if __name__ == "__main__":
     #bw = np.atleast_2d([bw[1]])
     obs = ObservationOperatorTimeSeriesGP( time_grid, state, rho_big, mask, emulators, bu, band_pass, bw )
 
-    temporal = TemporalSmoother ( time_grid, 500, required_params=["lai"] )
+    temporal = TemporalSmoother ( time_grid, 1000, required_params=["lai"] )
     state.add_operator ( "Observations", obs )     
     state.add_operator ( "Prior", prior )
     state.add_operator ( "Smoother", temporal )
@@ -208,5 +208,7 @@ if __name__ == "__main__":
     bounds = []
     for i in xrange(365):
         bounds.append ( state.bounds[6] )
+        
+    retval = state.optimize ( x_dict, bounds=bounds )
         
         
