@@ -112,20 +112,6 @@ def create_parameter_trajectories ( state, trajectory_funcs ):
             if trajectory_funcs.has_key ( parameter ):
                 parameter_grid [i, : ] = trajectory_funcs[parameter](t)
             else:
-            if parameter == "lai":
-                parameter_grid[i,:]= 0.21 + 3.51 * (np.sin(np.pi*t)**5)
-            #elif parameter == "cab":
-                #w = np.where(t<=0.5)[0]
-                #parameter_grid[i,w] = 10.5 + 208.7*t[w]
-                #w = np.where(t>0.5)[0]
-                #parameter_grid[i,w] = 219.2 - 208.7*t[w]
-            #elif parameter == "cw":
-                #parameter_grid[i,:] =  0.068/5 + 0.01*np.sin(np.pi * t+0.1) *  \
-                 #np.sin(6*np.pi*t + 0.1)
-            #elif parameter == "xs1":
-                #parameter_grid[i,:] =2.5*(0.2 + 0.18*np.sin(np.pi*t) * \
-                  #np.sin(6*np.pi*t))
-            else:
                 parameter_grid[i,:] = default
              
     return parameter_grid

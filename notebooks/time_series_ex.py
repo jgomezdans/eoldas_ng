@@ -31,15 +31,15 @@ if __name__ == "__main__":
     ######state_config['hspot'] = CONSTANT
 
     state_config['n'] = FIXED
-    state_config['cab'] = FIXED
+    state_config['cab'] = VARIABLE
     state_config['car'] = FIXED
     state_config['cbrown'] = FIXED
-    state_config['cw'] = FIXED
+    state_config['cw'] = VARIABLE
     state_config['cm'] = FIXED
     state_config['lai'] = VARIABLE
     state_config['ala'] = FIXED
     #state_config['lidfb'] = FIXED
-    state_config['bsoil'] = FIXED
+    state_config['bsoil'] = VARIABLE
     state_config['psoil'] = FIXED
     #state_config['hspot'] = CONSTANT
     
@@ -122,11 +122,29 @@ if __name__ == "__main__":
             x_dict[param] = default_par[param]
             
     
-
     
+    def cab_traj ( t ):
+        out = t*0.
+        w = np.where( t <= 0.5 )[0]
+        out[w] = 10.5 + 208.7*t[w]
+        w = np.where(t > 0.5)[0]
+        out[w] = 219.2 - 208.7*t[w]
+        return out
+
+    trajectories = {
+        'lai': lambda t: (0.21 + 3.51 * (np.sin(np.pi*t)**5)), 
+        'cab': cab_traj,
+        'cw': lambda t: (0.068/5 + 0.01*np.sin(np.pi * t+0.1) *  \
+                 np.sin(6*np.pi*t + 0.1) ),
+        'bsoil': lambda t: (2.5*(0.2 + 0.18*np.sin(np.pi*t) * \
+                  np.sin(6*np.pi*t)) )
+        }
+    
+    
+
     # Now, create some simulated data...
 
-    parameter_grid = create_parameter_trajectories ( state )
+    parameter_grid = create_parameter_trajectories ( state, trajectories )
 
     # Now forward model the observations...
     doys, vza, sza, raa, rho = create_observations ( state, parameter_grid, \
