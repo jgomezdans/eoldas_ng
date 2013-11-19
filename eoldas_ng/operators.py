@@ -169,9 +169,9 @@ class State ( object ):
             if typo == CONSTANT:
                 the_bounds.append ( self.bounds[i] )
             elif typo == VARIABLE:
-                n_elems = x_dict[param].size
+                
                 [ the_bounds.append ( self.bounds[i] ) \
-                    for j in xrange ( n_elems )]
+                    for j in xrange ( self.n_elems )]
         return the_bounds
     
     def optimize ( self, x0, bounds=None ):
