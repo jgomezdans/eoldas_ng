@@ -121,7 +121,7 @@ if __name__ == "__main__":
         elif state_config[param] == FIXED:
             x_dict[param] = default_par[param]
             
-    state.add_operator ( "Prior", prior )
+    
 
     
     # Now, create some simulated data...
@@ -179,26 +179,34 @@ if __name__ == "__main__":
         bh[i] = ( b_max[i] + b_min[i] )/2.
 
 
-    idoy = doys[0]
-    rhos = np.zeros((1, 365))
-    M = np.zeros((365, 4))
-    M[idoy, :] = mask[idoy,:]
-    rhos[ :, idoy] = rho_big[1, idoy]
-    bu = bu[1]
-    band_pass = np.atleast_2d ( [ band_pass[1] ] )
-    bw = np.atleast_2d([bw[1]])
-    obs = ObservationOperatorTimeSeriesGP( time_grid, state, rhos, M, emulators, bu, band_pass, bw )
+    #idoy = doys[0]
+    #rhos = np.zeros((1, 365))
+    #M = np.zeros((365, 4))
+    #M[idoy, :] = mask[idoy,:]
+    #rhos[ :, idoy] = rho_big[1, idoy]
+    #bu = np.array(  [bu[1]] )
+    #band_pass = np.atleast_2d ( [ band_pass[1] ] )
+    #bw = np.atleast_2d([bw[1]])
+    obs = ObservationOperatorTimeSeriesGP( time_grid, state, rho_big, mask, emulators, bu, band_pass, bw )
 
+    temporal = TemporalSmoother ( time_grid, 500, required_params=["lai"] )
     state.add_operator ( "Observations", obs )     
+    state.add_operator ( "Prior", prior )
+    state.add_operator ( "Smoother", temporal )
     
-    
+    #   
                 
     x_dict = {}
     for i,k in enumerate(state.parameter_max.keys()):
         if state.state_config[k] == VARIABLE:
-            x_dict[k] =  ( parameter_grid[i, :] )
+            x_dict[k] =  ( parameter_grid[i, :] )* + mu_prior[k]
         else:
             x_dict[k] = parameter_grid[i, 0]#*0+ mu_prior[k]
     
     X = state.pack_from_dict ( x_dict )
-
+    x_dict['lai'] = np.ones(365)*mu_prior['lai']
+    bounds = []
+    for i in xrange(365):
+        bounds.append ( state.bounds[6] )
+        
+        
