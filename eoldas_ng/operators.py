@@ -163,13 +163,17 @@ class State ( object ):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
      
-    def optimize ( self, x0 ):
+    def optimize ( self, x0, bounds=None ):
         
         """Optimise the state starting from a first guess `x0`"""
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0 )
-            
-        retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1 )
+        if bounds is None:
+            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
+                 factr=0.1, pgtol=1e-20)
+        else:
+            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
+                bounds=bounds, factr=0.1, pgtol=1e-20)
         retval_dict = self._unpack_to_dict ( retval[0] )
         print retval
         return retval_dict
@@ -183,6 +187,8 @@ class State ( object ):
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
+             print "\t[%s] --> %g" % ( op_name, cost )
+         print "\t\t[Total] -->" % ( aggr_cost )
          return aggr_cost, aggr_der_cost
          
 ##################################################################################        
@@ -239,13 +245,16 @@ class Prior ( object ):
                 if self.inv_cov[param].size == 1:
                     sigma = self.inv_cov[param]
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
-                cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( self.inv_cov[param] )
-                cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - self.mu[param])).sum()
+                    
+                cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( \
+                            self.inv_cov[param] )
+                cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - \
+                            self.mu[param])).sum()
                 der_cost[i:(i+n_elems)] = cost_m                                         
                 
                 i += n_elems
         
-        return cost, der_cost
+        return cost, -der_cost
     
     def der_der_cost ( self ):
         pass
@@ -270,6 +279,7 @@ class TemporalSmoother ( object ):
         cost = 0
         n = 0
         self.required_params = self.required_params or state_config.keys()
+        #import pdb; pdb.set_trace()
         ## This is a nice idea if you wanted to e.g. solve for
         ## gamma....
         ##if x_dict.has_key ( 'gamma' ):
@@ -298,12 +308,17 @@ class TemporalSmoother ( object ):
             elif typo == VARIABLE:
                 if param in self.required_params :
                     xa = np.matrix ( x_dict[param] )
+                    
                     cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
-                    der_cost[i:(i+self.n_elems)] = np.array(self.gamma*np.dot((self.D1).T, self.D1*xa.T)).squeeze()                
+                    der_cost[i:(i+self.n_elems)] = \
+                        np.array(self.gamma*np.dot((self.D1).T, \
+                         self.D1*xa.T)).squeeze()
+                    der_cost[i] = 0
+                    der_cost[i+n_elems-1] = 0
                 i += self.n_elems
                 
                 
-        return cost, der_cost
+        return cost, -der_cost
     
     def der_der_cost ( self ):
         """The Hessian (rider)"""
@@ -348,7 +363,7 @@ class ObservationOperator ( object ):
                     cost = cost + 0.5*np.sum((self.observations[self.mask] - \
                         x_dict[param][self.mask])**2/self.sigma_obs**2)
                     der_cost[i:(i+self.n_elems)][self.mask] = \
-                        -(self.observations[self.mask] - \
+                        (self.observations[self.mask] - \
                         x_dict[param][self.mask])/self.sigma_obs**2
                 i += self.n_elems
                 
