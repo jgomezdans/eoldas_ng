@@ -101,7 +101,7 @@ def do_mv_emulation ( xtrain, xvalidate, train_brf, validate_brf ):
     return emu, rmse
 
 
-def create_parameter_trajectories ( state ):
+def create_parameter_trajectories ( state, trajectory_funcs ):
     """This function creates the parameter trajectories as in the 
     RSE 2012 paper, just for testing"""
     t = np.arange ( 1, 366 )/365.
@@ -109,6 +109,9 @@ def create_parameter_trajectories ( state ):
          t.shape[0] ) )
     for i, (parameter, default) in \
         enumerate ( state.default_values.iteritems() ):
+            if trajectory_funcs.has_key ( parameter ):
+                parameter_grid [i, : ] = trajectory_funcs[parameter](t)
+            else:
             if parameter == "lai":
                 parameter_grid[i,:]= 0.21 + 3.51 * (np.sin(np.pi*t)**5)
             #elif parameter == "cab":
