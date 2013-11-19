@@ -163,14 +163,26 @@ class State ( object ):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
      
+    def _get_bounds_list ( self ):
+        the_bounds = []
+        for i ( param, typo ) in self.state_config.iteritems():
+            if typo == CONSTANT:
+                the_bounds.append ( self.bounds[i] )
+            elif typo == VARIABLE:
+                n_elems = x_dict[param].size
+                [ the_bounds.append ( self.bounds[i] ) \
+                    for j in xrange ( n_elems )]
+        return the_bounds
+    
     def optimize ( self, x0, bounds=None ):
         
         """Optimise the state starting from a first guess `x0`"""
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0 )
         if bounds is None:
+            the_bounds = self._get_bounds_list()
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
-                 factr=0.1, pgtol=1e-20)
+                 factr=0.1, pgtol=1e-20, bounds=the_bounds)
         else:
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
                 bounds=bounds, factr=0.1, pgtol=1e-20)
