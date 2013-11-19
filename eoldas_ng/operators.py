@@ -165,7 +165,7 @@ class State ( object ):
      
     def _get_bounds_list ( self ):
         the_bounds = []
-        for i ( param, typo ) in self.state_config.iteritems():
+        for i, ( param, typo ) in enumerate(self.state_config.iteritems()):
             if typo == CONSTANT:
                 the_bounds.append ( self.bounds[i] )
             elif typo == VARIABLE:
