@@ -28,7 +28,27 @@ def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
             der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
         return cost, np.array( der_cost ).squeeze()
 
-
+def fit_smoothness (  x, sigma_model  ):
+    """
+    This function calculates the spatial smoothness constraint. We use
+    a numpy strides trick to efficiently evaluate the neighbours. Note
+    that there are no edges here, we just ignore the first and last
+    rows and columns. Also note that we could have different weights
+    for x and y smoothing (indeed, diagonal smoothing) quite simply
+    """
+    # Build up the 8-neighbours
+    hood = np.array ( [  x[:-2, :-2], x[:-2, 1:-1], x[ :-2, 2: ], \
+                    x[ 1:-1,:-2], x[1:-1, 2:], \
+                    x[ 2:,:-2], x[ 2:, 1:-1], x[ 2:, 2:] ] )
+    j_model = 0
+    der_j_model = x*0
+    for i in [1,3,4,6]:#range(8):
+        j_model = j_model + 0.5*np.sum ( ( hood[i,:,:] - \
+	  x[1:-1,1:-1] )**2 )/sigma_model**2
+        der_j_model[1:-1,1:-1] = der_j_model[1:-1,1:-1] - \
+	  ( hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
+    return ( j_model, 2*der_j_model )
+  
 class State ( object ):
     
     """A state-definition class
@@ -119,9 +139,11 @@ class State ( object ):
                 # For this particular date, the relevant parameter is at location iloc
                 if self.transformation_dict.has_key ( param ):
                     the_vector[i:(i + self.n_elems)] =  \
-                        self.transformation_dict[param] ( x_dict[param] )
+                        self.transformation_dict[param] ( \
+			x_dict[param].flatten() )
                 else:
-                    the_vector[i:(i + self.n_elems)] =   x_dict[param] 
+                    the_vector[i:(i + self.n_elems)] =  \
+		      x_dict[param].flatten() 
                 i += self.n_elems
         return the_vector 
     
@@ -265,12 +287,13 @@ class Prior ( object ):
                 
                 i += n_elems
         
-        return cost, -der_cost
+        return cost, der_cost
     
     def der_der_cost ( self ):
         pass
     
     
+
 
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
@@ -384,18 +407,13 @@ class SpatialSmoother ( object ):
             elif typo == VARIABLE:
                 if param in self.required_params :
                     
-                    xa = np.matrix ( x_dict[param] )
-                    
-                    cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
-                    der_cost[i:(i+self.n_elems)] = \
-                        np.array(self.gamma*np.dot((self.D1).T, \
-                         self.D1*xa.T)).squeeze()
-                    der_cost[i] = 0
-                    der_cost[i+n_elems-1] = 0
-                i += self.n_elems
+                    xa = x_dict[param].reshape( self.nx )
+                    cost, dcost = fit_smoothness ( xa, self.gamma )
+                    der_cost[i:(i+n_elems)] = dcost.flatten()
+                i += n_elems
                 
                 
-        return cost, -der_cost
+        return cost, der_cost
 
 class ObservationOperator ( object ):
     """An Identity observation operator"""
