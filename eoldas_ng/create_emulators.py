@@ -126,8 +126,8 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
     2.- Add noise
     TODO: There's a problem  with pyephem, gives silly solar altitudes!!!"""
     wv = np.arange ( 400, 2501 )
-    band_pass = np.zeros((7,2101), dtype=np.bool)
     n_bands = b_min.shape[0]
+    band_pass = np.zeros(( n_bands,2101), dtype=np.bool)
     bw = np.zeros( n_bands )
     bh = np.zeros( n_bands )
     for i in xrange( n_bands ):

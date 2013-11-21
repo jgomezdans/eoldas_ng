@@ -182,10 +182,10 @@ class State ( object ):
         if bounds is None:
             the_bounds = self._get_bounds_list()
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
-                 factr=0.1, pgtol=1e-20, bounds=the_bounds)
+                 factr=1e-3, pgtol=1e-20, bounds=the_bounds)
         else:
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
-                bounds=bounds, factr=0.1, pgtol=1e-20)
+                bounds=bounds, factr=1e-3, pgtol=1e-20)
         retval_dict = self._unpack_to_dict ( retval[0] )
         print retval
         return retval_dict
@@ -199,8 +199,7 @@ class State ( object ):
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
-             print "\t[%s] --> %g" % ( op_name, cost )
-         print "\t\t[Total] -->" % ( aggr_cost )
+             print "\t%s %f" % ( op_name, cost )
          return aggr_cost, aggr_der_cost
          
 ##################################################################################        
@@ -291,6 +290,71 @@ class TemporalSmoother ( object ):
         cost = 0
         n = 0
         self.required_params = self.required_params or state_config.keys()
+        
+        
+        ## This is a nice idea if you wanted to e.g. solve for
+        ## gamma....
+        ##if x_dict.has_key ( 'gamma' ):
+            ##self.gamma = x_dict['gamma']
+            ##x_dict.pop ( 'gamma' )
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
+        der_cost = np.zeros ( n )
+
+        for param, typo in state_config.iteritems():
+            
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass
+                
+            if typo == CONSTANT: # Constant value for all times
+                # No model constraint!
+                               
+                i += 1                
+                
+            elif typo == VARIABLE:
+                if param in self.required_params :
+                    
+                    
+                    xa = np.matrix ( x_dict[param] )
+                    
+                    cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
+                    der_cost[i:(i+self.n_elems)] = \
+                        np.array(self.gamma*np.dot((self.D1).T, \
+                         self.D1*xa.T)).squeeze()
+                    #der_cost[i] = 0
+                    #der_cost[i+n_elems-1] = 0
+                i += self.n_elems
+                
+                
+        return cost, -der_cost
+    
+    def der_der_cost ( self ):
+        """The Hessian (rider)"""
+        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( self.D1.T)
+            
+
+class SpatialSmoother ( object ):
+    """MRF prior"""
+    def __init__ ( self, state_grid, gamma, required_params = None  ):
+        self.nx = state_grid.shape
+        self.gamma = gamma
+        self.required_params = required_params
+        
+    def der_cost ( self, x_dict, state_config):
+        """Calculate the cost function and its partial derivs for a time smoother
+        
+        Takes a parameter dictionary, and a state configuration dictionary"""
+        i = 0
+        cost = 0
+        n = 0
+        self.required_params = self.required_params or state_config.keys()
+        
         #import pdb; pdb.set_trace()
         ## This is a nice idea if you wanted to e.g. solve for
         ## gamma....
@@ -319,6 +383,7 @@ class TemporalSmoother ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params :
+                    
                     xa = np.matrix ( x_dict[param] )
                     
                     cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
@@ -331,11 +396,6 @@ class TemporalSmoother ( object ):
                 
                 
         return cost, -der_cost
-    
-    def der_der_cost ( self ):
-        """The Hessian (rider)"""
-        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( self.D1.T)
-            
 
 class ObservationOperator ( object ):
     """An Identity observation operator"""
