@@ -217,16 +217,16 @@ if __name__ == "__main__":
     x_dict = {}
     for i,k in enumerate(state.parameter_max.keys()):
         if state.state_config[k] == VARIABLE:
-            x_dict[k] =  ( parameter_grid[i, :] )* + mu_prior[k]
+            x_dict[k] =  ( parameter_grid[i, :] )*0 + mu_prior[k]
         else:
-            x_dict[k] = parameter_grid[i, 0]#*0+ mu_prior[k]
+            x_dict[k] = parameter_grid[i, 0]*0+ mu_prior[k]
     
     X = state.pack_from_dict ( x_dict )
-    x_dict['lai'] = np.ones(365)*mu_prior['lai']
+    #x_dict['lai'] = np.ones(365)*mu_prior['lai']
     bounds = []
     for i in xrange(365):
         bounds.append ( state.bounds[6] )
         
-    retval = state.optimize ( x_dict, bounds=bounds )
+    retval = state.optimize ( x_dict)#, bounds=bounds )
         
         
