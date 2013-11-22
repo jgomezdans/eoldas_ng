@@ -48,6 +48,17 @@ def fit_smoothness (  x, sigma_model  ):
         der_j_model[1:-1,1:-1] = der_j_model[1:-1,1:-1] - \
 	  ( hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
     return ( j_model, 2*der_j_model )
+
+def fit_observations_gauss ( x, obs, sigma_obs, qa ):
+    """
+    A fit to the observations term. This function returns the likelihood
+
+    
+    """
+    der_j_obs = np.where ( qa_flag == 1, (x - obs)/sigma_obs**2, 0 )
+    j_obs = np.where ( qa_flag == 1, 0.5*(x - obs)**2/sigma_obs**2, 0 )
+    j_obs = j_obs.sum()
+    return ( j_obs, der_j_obs )
   
 class State ( object ):
     
@@ -378,12 +389,7 @@ class SpatialSmoother ( object ):
         n = 0
         self.required_params = self.required_params or state_config.keys()
         
-        #import pdb; pdb.set_trace()
-        ## This is a nice idea if you wanted to e.g. solve for
-        ## gamma....
-        ##if x_dict.has_key ( 'gamma' ):
-            ##self.gamma = x_dict['gamma']
-            ##x_dict.pop ( 'gamma' )
+
         n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
@@ -415,14 +421,17 @@ class SpatialSmoother ( object ):
                 
         return cost, der_cost
 
+
 class ObservationOperator ( object ):
     """An Identity observation operator"""
-    def __init__ ( self, observations, sigma_obs, mask, required_params = ['magnitude']):
+    def __init__ ( self, state_grid, observations, sigma_obs, mask, \
+		required_params = ['magnitude']):
         self.observations = observations
         self.sigma_obs = sigma_obs
         self.mask = mask
-        self.n_elems = observations.shape[0]
+        self.n_elems = observations.size
         self.required_params = required_params
+        
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivs for identity obs op
         
@@ -430,7 +439,9 @@ class ObservationOperator ( object ):
         i = 0
         cost = 0
         n = 0
-        
+        # n is used to calculate the size of the derivative vector. 
+        # This should be part of the state
+        # TODO pass the der_cost array and modify in-place!
         for typo in x_dict.iteritems():
             if np.isscalar ( typo[1] ):
                 n = n + 1
@@ -450,14 +461,14 @@ class ObservationOperator ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-                    cost = cost + 0.5*np.sum((self.observations[self.mask] - \
-                        x_dict[param][self.mask])**2/self.sigma_obs**2)
-                    der_cost[i:(i+self.n_elems)][self.mask] = \
-                        (self.observations[self.mask] - \
-                        x_dict[param][self.mask])/self.sigma_obs**2
+					this_cost, this_der = fit_observations_gauss ( x_dict[param], \
+						self.observations, self.sigma_obs, self.mask )
+                    cost = cost + this_cost
+                    der_cost[i:(i+self.n_elems)] = this_der
                 i += self.n_elems
                 
         return cost, der_cost
+
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
