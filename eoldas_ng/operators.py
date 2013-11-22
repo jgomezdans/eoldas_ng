@@ -17,6 +17,22 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
+
+def downsample(myarr,factorx,factory):
+    """
+    Downsample a 2D array by averaging over *factor* pixels in each axis.
+    Crops upper edge if the shape is not a multiple of factor.
+
+    This code is pure numpy and should be fast.
+    Leeched from <https://code.google.com/p/agpy/source/browse/trunk/agpy/downsample.py?r=114>
+    """
+    xs,ys = myarr.shape
+    crarr = myarr[:xs-(xs % int(factorx)),:ys-(ys % int(factory))]
+    dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
+        for i in range(factorx)] 
+        for j in range(factory)]).mean(axis=0)
+    return dsarr
+
 def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
         f, g = gp.predict ( x )
         cost = 0
@@ -49,17 +65,41 @@ def fit_smoothness (  x, sigma_model  ):
 	  ( hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
     return ( j_model, 2*der_j_model )
 
-def fit_observations_gauss ( x, obs, sigma_obs, qa ):
+def fit_observations_gauss ( x, obs, sigma_obs, qa, factor=1 ):
     """
     A fit to the observations term. This function returns the likelihood
 
     
     """
-    der_j_obs = np.where ( qa_flag == 1, (x - obs)/sigma_obs**2, 0 )
-    j_obs = np.where ( qa_flag == 1, 0.5*(x - obs)**2/sigma_obs**2, 0 )
+    if factor == 1:
+        der_j_obs = np.where ( qa == 1, (x - obs)/sigma_obs**2, 0 )
+        j_obs = np.where ( qa  == 1, 0.5*(x - obs)**2/sigma_obs**2, 0 )
+        j_obs = j_obs.sum()
+    else:
+        j_obs, der_j_obs = fit_obs_spat ( x, obs, sigma_obs, qa, factor )
+
+    return ( j_obs, der_j_obs )
+
+  
+def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
+    """
+    A fit to the observations term. This function returns the likelihood
+
+    
+    """
+    import scipy.ndimage.interpolation
+    
+    xa = downsample ( x, factor[0], factor[1] )
+    
+    assert ( xa.shape == obs.shape )
+    der_j_obs = np.where ( qa == 1, (xa - obs)/sigma_obs**2, 0 )
+    
+    der_j_obs = scipy.ndimage.interpolation.zoom ( der_j_obs, factor, order=1 )
+    j_obs = np.where ( qa == 1, 0.5*(xa - obs)**2/sigma_obs**2, 0 )
     j_obs = j_obs.sum()
     return ( j_obs, der_j_obs )
-  
+
+
 class State ( object ):
     
     """A state-definition class
@@ -210,6 +250,7 @@ class State ( object ):
     def optimize ( self, x0, bounds=None ):
         
         """Optimise the state starting from a first guess `x0`"""
+        
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0 )
         if bounds is None:
@@ -336,7 +377,7 @@ class TemporalSmoother ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
+                n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
 
@@ -395,8 +436,9 @@ class SpatialSmoother ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
+                n_elems = x_dict[param].size
                 n += n_elems
+            
         der_cost = np.zeros ( n )
 
         for param, typo in state_config.iteritems():
@@ -425,12 +467,13 @@ class SpatialSmoother ( object ):
 class ObservationOperator ( object ):
     """An Identity observation operator"""
     def __init__ ( self, state_grid, observations, sigma_obs, mask, \
-		required_params = ['magnitude']):
+		required_params = ['magnitude'], factor=1 ):
         self.observations = observations
         self.sigma_obs = sigma_obs
         self.mask = mask
-        self.n_elems = observations.size
+        self.n_elems = state_grid.size
         self.required_params = required_params
+        self.factor = factor
         
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivs for identity obs op
@@ -447,7 +490,7 @@ class ObservationOperator ( object ):
                 n = n + 1
             else:
                 n = n + len ( typo[1] )
-        der_cost = np.zeros ( n )
+        der_cost = np.zeros ( self.n_elems )
         for param, typo in state_config.iteritems():
             
             if typo == FIXED: # Default value for all times
@@ -461,10 +504,10 @@ class ObservationOperator ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-					this_cost, this_der = fit_observations_gauss ( x_dict[param], \
-						self.observations, self.sigma_obs, self.mask )
+                    this_cost, this_der = fit_observations_gauss ( x_dict[param], \
+                        self.observations, self.sigma_obs, self.mask, factor=self.factor )
                     cost = cost + this_cost
-                    der_cost[i:(i+self.n_elems)] = this_der
+                    der_cost[i:(i+self.n_elems)] = this_der.flatten()
                 i += self.n_elems
                 
         return cost, der_cost
