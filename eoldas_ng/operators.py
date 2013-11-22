@@ -354,6 +354,7 @@ class TemporalSmoother ( object ):
         self.n_elems = state_grid.shape[0]
         I = np.identity( state_grid.shape[0] )
         self.D1 = np.matrix(I - np.roll(I,1))
+        self.D1 = self.D1 * self.D1.T
         self.gamma = gamma
         self.required_params = required_params
         
@@ -398,16 +399,15 @@ class TemporalSmoother ( object ):
                     
                     xa = np.matrix ( x_dict[param] )
                     
-                    cost = cost + 0.5*self.gamma*np.dot((self.D1*(xa.T)).T, self.D1*xa.T)
-                    der_cost[i:(i+self.n_elems)] = \
-                        np.array(self.gamma*np.dot((self.D1).T, \
-                         self.D1*xa.T)).squeeze()
+                    cost = cost +  0.5*self.gamma*(np.sum(np.array(self.D1.dot(xa.T))**2))
+                    der_cost[i:(i+self.n_elems)] = np.array( self. gamma*np.dot((self.D1).T, \
+                        self.D1*np.matrix(xa).T)).squeeze()
                     #der_cost[i] = 0
                     #der_cost[i+n_elems-1] = 0
                 i += self.n_elems
                 
                 
-        return cost, -der_cost
+        return cost, der_cost
     
     def der_der_cost ( self ):
         """The Hessian (rider)"""
