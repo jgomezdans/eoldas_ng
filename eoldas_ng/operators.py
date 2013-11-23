@@ -17,6 +17,9 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
+def test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
+    f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
+    return f
 
 def downsample(myarr,factorx,factory):
     """
@@ -34,7 +37,7 @@ def downsample(myarr,factorx,factory):
     return dsarr
 
 def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
-        f, g = gp.predict ( x )
+        f, g = gp.predict ( np.atleast_2d( x ) )
         cost = 0
         der_cost = []
         for i in xrange( len(band_pass) ):
@@ -396,8 +399,10 @@ class TemporalSmoother ( object ):
             elif typo == VARIABLE:
                 if param in self.required_params :
                     
-                    
-                    xa = np.matrix ( x_dict[param] )
+                    if param == 'lai':
+                        xa = np.matrix(np.exp ( -x_dict[param]/2. ))
+                    else:
+                        xa = np.matrix ( x_dict[param] )
                     
                     cost = cost +  0.5*self.gamma*(np.sum(np.array(self.D1.dot(xa.T))**2))
                     der_cost[i:(i+self.n_elems)] = np.array( self. gamma*np.dot((self.D1).T, \
@@ -586,10 +591,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # tag here is needed to look for the emulator for this geometry
             tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
             the_emu = self.emulators[ tag ]
-            
+
             this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
                  self.observations[:, itime], self.bu, self.band_pass, \
                  self.bw )
+            
+            #g = scipy.optimize.approx_fprime ( x_params[:, itime], test_fwd_model, 1e-10, the_emu, self.observations[:,itime], self.bu, self.band_pass, self.bw )
             cost += this_cost
             the_derivatives[ :, itime] = this_der.sum( axis=0 )
             

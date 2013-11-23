@@ -162,7 +162,7 @@ def create_observations ( state, parameter_grid, latitude, longitude, \
     rho = np.zeros (( len(bw), obs_doys.shape[0] ))
     sigma_obs = (0.01-0.004)*(bh-bh.min())/(bh.max()-bh.min())
     sigma_obs += 0.004
-    
+    sigma_obs = np.ones_like ( bw )*0.01
     for i,doy in enumerate(obs_doys):
         j = doy - 1 # location in parameter_grid...
         vza[i] = 15.#np.random.rand(1)*15. # 15 degs 

@@ -123,13 +123,13 @@ R, C, ndvi_true_hires, ndvi_obs_hires, qa_flag_hires = create_data ( rows, cols,
 
 cmap=plt.cm.spectral
 cmap.set_bad('0.8')
-plt.subplot ( 2,2,1 )
+plt.subplot ( 3,2,1 )
 plt.imshow ( ndvi_true_hires, interpolation='nearest', vmin=0, vmax=1, cmap=cmap )
 plt.xticks(visible=False)
 plt.yticks(visible=False)
 plt.ylabel("High Resolution")
 plt.title("'True'")
-plt.subplot ( 2,2,2)
+plt.subplot ( 3,2,2)
 plt.title("Observed")
 plt.imshow ( np.ma.array(ndvi_obs_hires,mask=qa_flag_hires==0), \
     interpolation='nearest', vmin=0, vmax=1, cmap=cmap )
@@ -143,14 +143,14 @@ R, C, ndvi_true_lores, ndvi_obs_lores, qa_flag_lores = create_data ( rows, cols,
 
 cmap=plt.cm.spectral
 cmap.set_bad('0.8')
-plt.subplot ( 2,2,3 )
+plt.subplot ( 3,2,3 )
 plt.imshow ( ndvi_true_lores, interpolation='nearest', vmin=0, vmax=1, cmap=cmap )
 plt.xticks(visible=False)
 plt.yticks(visible=False)
 
 
 plt.ylabel("Low Resolution")
-plt.subplot ( 2,2,4)
+plt.subplot ( 3,2,4)
 plt.imshow ( np.ma.array(ndvi_obs_lores,mask=qa_flag_lores==0), \
     interpolation='nearest', vmin=0, vmax=1, cmap=cmap )
 plt.xticks(visible=False)
@@ -198,3 +198,10 @@ the_state.add_operator ( "HiRes Observations", the_hires_obs )
 the_lores_obs = ObservationOperator ( state_grid, ndvi_obs_lores, sigma_obs, qa_flag_lores, factor=[2,2])
 
 the_state.add_operator ( "LoRes Observations", the_lores_obs )
+retval = the_state.optimize ( x_dict )
+plt.subplot( 3, 2, 6 )
+plt.imshow ( retval['magnitude'], \
+    interpolation='nearest', vmin=0, vmax=1, cmap=cmap )
+
+plt.xticks(visible=False)
+plt.yticks(visible=False)
