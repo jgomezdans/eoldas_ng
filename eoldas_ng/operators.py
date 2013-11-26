@@ -19,7 +19,23 @@ VARIABLE = 3
 
 def test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
     f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
-    return f
+    return f#,g.sum(axis=0)
+
+def der_test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
+    f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
+    return g.sum(axis=0)
+
+
+def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
+        f, g = gp.predict ( np.atleast_2d( x ) )
+        cost = 0
+        der_cost = []
+        for i in xrange( len(band_pass) ):
+            d = f[band_pass[i]].sum()/bw[i] - R[i]
+            derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
+            cost += 0.5*np.sum(d*d)/(band_unc[i])**2
+            der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
+        return cost, np.array( der_cost ).squeeze().sum(axis=0)
 
 def downsample(myarr,factorx,factory):
     """
@@ -35,17 +51,6 @@ def downsample(myarr,factorx,factory):
         for i in range(factorx)] 
         for j in range(factory)]).mean(axis=0)
     return dsarr
-
-def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
-        f, g = gp.predict ( np.atleast_2d( x ) )
-        cost = 0
-        der_cost = []
-        for i in xrange( len(band_pass) ):
-            d = f[band_pass[i]].sum()/bw[i] - R[i]
-            derivs = d*g[:, band_pass[i] ]/(band_unc[i])**2
-            cost += 0.5*np.sum(d*d)/(band_unc[i])**2
-            der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
-        return cost, np.array( der_cost ).squeeze()
 
 def fit_smoothness (  x, sigma_model  ):
     """
@@ -125,7 +130,7 @@ class State ( object ):
        just prescribe some default value."""
        
     def __init__ ( self, state_config, state_grid, default_values, \
-            parameter_min, parameter_max ):
+            parameter_min, parameter_max, verbose=False ):
         """State constructor
         
         
@@ -138,6 +143,7 @@ class State ( object ):
         self.n_params = self._state_vector_size ()
         self.parameter_min = parameter_min
         self.parameter_max = parameter_max
+	self.verbose = verbose
         self.bounds = []
         for ( i, param ) in enumerate ( self.state_config.iterkeys() ):
             self.bounds.append ( [ self.parameter_min[param], \
@@ -176,14 +182,14 @@ class State ( object ):
                 n_params  += self.n_elems
         return n_params
         
-    def pack_from_dict ( self, x_dict ):
+    def pack_from_dict ( self, x_dict, do_transform=False ):
         the_vector = np.zeros ( self.n_params )
         # Now, populate said vector in the right order
         # looping over state_config *should* preserve the order
         i = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT: # Constant value for all times
-                if self.transformation_dict.has_key ( param ):
+                if do_transform and self.transformation_dict.has_key ( param ):
                     the_vector[i] = self.transformation_dict[param] ( \
                         x_dict[param] )
                 else:
@@ -191,17 +197,17 @@ class State ( object ):
                 i = i+1        
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
-                if self.transformation_dict.has_key ( param ):
+                if do_transform and self.transformation_dict.has_key ( param ):
                     the_vector[i:(i + self.n_elems)] =  \
                         self.transformation_dict[param] ( \
-			x_dict[param].flatten() )
+                            x_dict[param].flatten() )
                 else:
                     the_vector[i:(i + self.n_elems)] =  \
-		      x_dict[param].flatten() 
+                        x_dict[param].flatten() 
                 i += self.n_elems
         return the_vector 
     
-    def _unpack_to_dict ( self, x ):
+    def _unpack_to_dict ( self, x, do_transform=False ):
         """Unpacks an optimisation vector `x` to a working dict"""
         the_dict = OrderedDict()
         i = 0
@@ -211,14 +217,16 @@ class State ( object ):
                 the_dict[param] = self.default_values[param]
                 
             elif typo == CONSTANT: # Constant value for all times
-                if self.invtransformation_dict.has_key ( param ):
+                if do_transform and self.invtransformation_dict.has_key ( \
+                        param ):
                     the_dict[param] = self.invtransformation_dict[param]( x[i] )
                 else:
                     the_dict[param] = x[i]
                 i += 1
                 
             elif typo == VARIABLE:
-                if self.invtransformation_dict.has_key ( param ):
+                if do_transform and self.invtransformation_dict.has_key ( \
+                        param ):
                     the_dict[param] = self.invtransformation_dict[param] ( \
                         x[i:(i+self.n_elems )]).reshape( \
                         self.state_grid.shape )
@@ -255,17 +263,18 @@ class State ( object ):
         """Optimise the state starting from a first guess `x0`"""
         
         if type(x0) == type ( {} ):
-            x0 = self.pack_from_dict ( x0 )
+            x0 = self.pack_from_dict ( x0, do_transform=True )
+            
         if bounds is None:
             the_bounds = self._get_bounds_list()
-            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
+            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
                  factr=1e-3, pgtol=1e-20, bounds=the_bounds)
         else:
-            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=1, \
+            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
                 bounds=bounds, factr=1e-3, pgtol=1e-20)
-        retval_dict = self._unpack_to_dict ( retval[0] )
-        print retval
-        return retval_dict
+        retval_dict = self._unpack_to_dict ( retval[0], do_transform=True )
+        
+        return retval
      
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
@@ -276,7 +285,8 @@ class State ( object ):
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
-             print "\t%s %f" % ( op_name, cost )
+             if self.verbose:
+                 print "\t%s %f" % ( op_name, cost )
          return aggr_cost, aggr_der_cost
          
 ##################################################################################        
@@ -412,7 +422,7 @@ class TemporalSmoother ( object ):
                 i += self.n_elems
                 
                 
-        return cost, der_cost
+        return cost, -der_cost
     
     def der_der_cost ( self ):
         """The Hessian (rider)"""
@@ -598,7 +608,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
             
             #g = scipy.optimize.approx_fprime ( x_params[:, itime], test_fwd_model, 1e-10, the_emu, self.observations[:,itime], self.bu, self.band_pass, self.bw )
             cost += this_cost
-            the_derivatives[ :, itime] = this_der.sum( axis=0 )
+            the_derivatives[ :, itime] = this_der
             
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
@@ -610,7 +620,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
                 j += n_elems
                
-        return cost, der_cost
+        return cost, -der_cost
         
          
 class ObservationOperatorImageGP ( object ):
