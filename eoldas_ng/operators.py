@@ -23,16 +23,18 @@ def test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
 
 def der_test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
     f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
-    return g.sum(axis=0)
+    return g
 
 
 def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
         f, g = gp.predict ( np.atleast_2d( x ) )
         cost = 0
         der_cost = []
+        
         for i in xrange( len(band_pass) ):
             d = f[band_pass[i]].sum()/bw[i] - R[i]
-            derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
+            #derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
+            derivs = d*g[:, band_pass[i] ]/((band_unc[i]**2))
             cost += 0.5*np.sum(d*d)/(band_unc[i])**2
             der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
         return cost, np.array( der_cost ).squeeze().sum(axis=0)
@@ -207,29 +209,48 @@ class State ( object ):
                 i += self.n_elems
         return the_vector 
     
-    def _unpack_to_dict ( self, x, do_transform=False ):
+    def _unpack_to_dict ( self, x, do_transform=False, do_invtransform=False ):
         """Unpacks an optimisation vector `x` to a working dict"""
         the_dict = OrderedDict()
         i = 0
         for param, typo in self.state_config.iteritems():
             
-            if typo == FIXED: # Default value for all times
-                the_dict[param] = self.default_values[param]
+            if typo == FIXED: # Default value for all times                                
+                if self.transformation_dict.has_key ( \
+                        param ):
+                    the_dict[param] = self.transformation_dict[param]( \
+                         self.default_values[param] )
+                else:
+                #elif do_transform and self.transformation_dict.has_key ( \
+                        #param ):
+                    the_dict[param] = self.default_values[param] 
+                #else:
+                    #the_dict[param] = self.default_values[param]
                 
             elif typo == CONSTANT: # Constant value for all times
-                if do_transform and self.invtransformation_dict.has_key ( \
+                if do_transform and self.transformation_dict.has_key ( \
+                        param ):
+                    the_dict[param] = self.transformation_dict[param]( x[i] )
+                elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
                     the_dict[param] = self.invtransformation_dict[param]( x[i] )
+
                 else:
                     the_dict[param] = x[i]
                 i += 1
                 
             elif typo == VARIABLE:
-                if do_transform and self.invtransformation_dict.has_key ( \
+                if do_transform and self.transformation_dict.has_key ( \
+                        param ):
+                    the_dict[param] = self.transformation_dict[param] ( \
+                        x[i:(i+self.n_elems )]).reshape( \
+                        self.state_grid.shape )
+                elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
                     the_dict[param] = self.invtransformation_dict[param] ( \
                         x[i:(i+self.n_elems )]).reshape( \
                         self.state_grid.shape )
+
                 else:
                     the_dict[param] = x[i:(i+self.n_elems )].reshape( \
                         self.state_grid.shape )
@@ -264,11 +285,12 @@ class State ( object ):
         
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0, do_transform=True )
-            
+        
         if bounds is None:
             the_bounds = self._get_bounds_list()
-            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
-                 factr=1e-3, pgtol=1e-20, bounds=the_bounds)
+            
+            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=20, disp=1, \
+                 factr=1e-3, maxfun=500, pgtol=1e-20, bounds=the_bounds)
         else:
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
                 bounds=bounds, factr=1e-3, pgtol=1e-20)
@@ -278,9 +300,12 @@ class State ( object ):
      
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
+         
          x_dict = self._unpack_to_dict ( x )
+         
          aggr_cost = 0
          aggr_der_cost = x*0.0
+         
          for op_name, the_op in self.operators.iteritems():
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
@@ -409,12 +434,10 @@ class TemporalSmoother ( object ):
             elif typo == VARIABLE:
                 if param in self.required_params :
                     
-                    if param == 'lai':
-                        xa = np.matrix(np.exp ( -x_dict[param]/2. ))
-                    else:
-                        xa = np.matrix ( x_dict[param] )
+                    xa = np.matrix ( x_dict[param] )
                     
-                    cost = cost +  0.5*self.gamma*(np.sum(np.array(self.D1.dot(xa.T))**2))
+                    cost = cost + \
+                        0.5*self.gamma*(np.sum(np.array(self.D1.dot(xa.T))**2))
                     der_cost[i:(i+self.n_elems)] = np.array( self. gamma*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
                     #der_cost[i] = 0
@@ -422,7 +445,7 @@ class TemporalSmoother ( object ):
                 i += self.n_elems
                 
                 
-        return cost, -der_cost
+        return cost, der_cost
     
     def der_der_cost ( self ):
         """The Hessian (rider)"""
@@ -580,16 +603,16 @@ class ObservationOperatorTimeSeriesGP ( object ):
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
-                if self.state.transformation_dict.has_key ( param ):
-                    x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
-                else:
-                    x_params[ j, : ] = x_dict[param]
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
                 
             elif typo == VARIABLE:
-                if self.state.transformation_dict.has_key ( param ):
-                    x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
-                else:
-                    x_params[ j, : ] = x_dict[param]
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
 
             j += 1
         
@@ -610,6 +633,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
             cost += this_cost
             the_derivatives[ :, itime] = this_der
             
+            
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
@@ -619,8 +643,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 n_elems = len ( x_dict[param] )
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
                 j += n_elems
-               
-        return cost, -der_cost
+        
+        return cost, der_cost
         
          
 class ObservationOperatorImageGP ( object ):
