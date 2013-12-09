@@ -379,8 +379,9 @@ class Prior ( object ):
         
         return cost, der_cost
     
-    def der_der_cost ( self ):
-        pass
+
+    def der_der_cost ( self, x, state_config ):
+        # Hessian is just C_{prior}^{-1}
     
     
 
@@ -449,7 +450,8 @@ class TemporalSmoother ( object ):
     
     def der_der_cost ( self ):
         """The Hessian (rider)"""
-        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( self.D1.T)
+        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( \
+            self.D1.T)
             
 
 class SpatialSmoother ( object ):
@@ -500,7 +502,9 @@ class SpatialSmoother ( object ):
                 
                 
         return cost, der_cost
-
+    def der_der_cost ( x, state_config ):
+        # TODO
+        pass
 
 class ObservationOperator ( object ):
     """An Identity observation operator"""
@@ -549,6 +553,9 @@ class ObservationOperator ( object ):
                 i += self.n_elems
                 
         return cost, der_cost
+    
+    def der_der_cost ( self, x, state_config ):
+        # Hessian is just C_{obs}^{-1}
 
         
 class ObservationOperatorTimeSeriesGP ( object ):
