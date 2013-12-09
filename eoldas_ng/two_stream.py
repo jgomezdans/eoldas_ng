@@ -205,8 +205,8 @@ class ObservationOperatorTwoStream ( object ):
                 continue
             # We use the `get_emulator` method to select the required
             # emulator for this geometry, spectral setting etc
-            tag = self.get_emulator ( itime, self.mask, self.emulators )
-            the_emu = self.emulators [ tag ]
+            the_emu = self.get_emulator ( itime, self.mask, self.emulators )
+             
 
             this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
                  self.observations[:, itime], self.bu, self.band_pass, \
