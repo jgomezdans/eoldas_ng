@@ -229,7 +229,8 @@ class ObservationOperatorTwoStream ( object ):
         
         return cost, der_cost
 
-    def der_der_cost ( self, x, state_config, =1.0e-9 ):
+    def der_der_cost ( self, x, state_config, epsilon=1.0e-9 ):
+        """Numerical approximation to the Hessian"""
             
         N = x.size
         h = np.zeros((N,N))

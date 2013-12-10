@@ -382,6 +382,9 @@ class Prior ( object ):
 
     def der_der_cost ( self, x, state_config ):
         # Hessian is just C_{prior}^{-1}
+        # Needs some thinking for getting parameters in the
+        # right positions etc
+        pass
     
     
 
@@ -503,7 +506,10 @@ class SpatialSmoother ( object ):
                 
         return cost, der_cost
     def der_der_cost ( x, state_config ):
-        # TODO
+        # TODO Clear how it goes for single parameter, but for
+        # multiparameter, it can easily get tricky. Also really
+        # need to have all mxs in sparse format, otherwise, they
+        # don't fit in memory.
         pass
 
 class ObservationOperator ( object ):
@@ -555,7 +561,12 @@ class ObservationOperator ( object ):
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config ):
-        # Hessian is just C_{obs}^{-1}
+        # Hessian is just C_{obs}^{-1}?
+        hess_obs = np.zeros( x.size )
+        hess_obs[ self.mask ] = (1./self.sigma_obs**2)
+        hess_obs = np.diag( hess_obs )
+        #TODO should be sparse!!!
+        return hess_obs
 
         
 class ObservationOperatorTimeSeriesGP ( object ):
@@ -652,7 +663,20 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 j += n_elems
         
         return cost, der_cost
-        
+    def der_der_cost ( self, x, state_config, epsilon=1.0e-9 ):
+        """Numerical approximation to the Hessian"""
+            
+        N = x.size
+        h = np.zeros((N,N))
+        df_0 = self.der_cost ( x, state_config )[1]
+        for i in xrange(N):
+            xx0 = 1.*x[i]
+            x[i] = xx0 + epsilon
+            df_1 = self.der_cost ( x, state_config )[1]
+            h[i,:] = (df_1 - df_0)/epsilon
+            x[i] = xx0
+        return h
+
          
 class ObservationOperatorImageGP ( object ):
     """A GP-based observation operator"""
