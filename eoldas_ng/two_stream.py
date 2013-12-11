@@ -54,87 +54,87 @@ def two_stream_model ( x, sun_angle, structure_factor_zeta = 1., \
     #[ iso_abs_tot_vis, iso_abs_tot_nir]
     return  [ collim_alb_tot_vis, collim_alb_tot_nir ]
 
-    def create_emulators ( sun_angles, x_min, x_max, n_train=250, n_validate=1000 ):
-        """This is a helper function to create emulators from the 2stream model.
-        The emulators operate on all parameters (7) and the user needs to provide
-        a numer of `sun_angles`. This then allows the inversion of BHR data from e.g.
-        MODIS MCD43. We need to specify minimum and maximum boundaries for the 
-        parameters (`x_min`, `x_max`). The number of training samples (`n_train`) 
-        is set to 250 as this results in a very good emulation while still 
-        being reasonably fast. The validation on 1000 randomly drawn parameters
-        will be reported too. The output will be one dictionary, indexed by
-        sun angle, one for VIS and one for NIR.
-        
-        """
-        
-        from gp_emulator import GaussianProcess, lhd
-        import scipy.stats as ss
+def create_emulators ( sun_angles, x_min, x_max, n_train=250, n_validate=1000 ):
+    """This is a helper function to create emulators from the 2stream model.
+    The emulators operate on all parameters (7) and the user needs to provide
+    a numer of `sun_angles`. This then allows the inversion of BHR data from e.g.
+    MODIS MCD43. We need to specify minimum and maximum boundaries for the 
+    parameters (`x_min`, `x_max`). The number of training samples (`n_train`) 
+    is set to 250 as this results in a very good emulation while still 
+    being reasonably fast. The validation on 1000 randomly drawn parameters
+    will be reported too. The output will be one dictionary, indexed by
+    sun angle, one for VIS and one for NIR.
+    
+    """
+    
+    from gp_emulator import GaussianProcess, lhd
+    import scipy.stats as ss
 
-        n_params = x_min.size
-        ## Putting boundaries on parameter space is useful
-        #x_min = np.array ( 7*[ 0.001,] )
-        #x_max = np.array ( 7*[0.95, ] )
-        #x_max[-1] = 10.
-        #x_min[1] = 0.
-        #x_max[1] = 5.
-        #x_min[4] = 0.
-        #x_max[4] = 5.
-        # First we create the sampling space for the emulators. In the
-        # absence of any further information, we assume a uniform 
-        # distribution between x_min and (x_max - x_min):
-        dist = []
-        for k in xrange( n_params ):
-            dist.append ( ss.uniform ( loc=x_min[k], \
-                                  scale = x_max[k] - x_min[k] ) )
-        # The training dataset is obtaiend by a LatinHypercube Design
-        x_train = lhd(dist=dist, size=n_train )
-        # The validation dataset is randomly drawn from within the 
-        # parameter boundaries
-        x_validate = np.random.rand (  n_validate, n_params  )*(x_max - x_min) + \
-            x_min
-        emu_vis = {}
-        emu_nir = {}
-        # We next loop over the input sun angles
-        for sun_angle in sun_angles:
-            # If we've done this sun angle before, skip it
-            if not emu_vis.has_key ( sun_angle ):
-                albedo_train = []
-                albedo_validate = []
-                # The following loop creates the validation dataset
-                for i in xrange( n_validate ):
-                    [a_vis, a_nir] = two_stream_model ( x_validate[i,:], \
-                        sun_angle )
-                    albedo_validate.append ( [a_vis, a_nir] )
-                # The following loop creates the training dataset
-                for i in xrange ( n_train ):
-                    [a_vis, a_nir] = two_stream_model ( x_train[i,:], \
-                        sun_angle )
-                    albedo_train.append ( [a_vis, a_nir] )
+    n_params = x_min.size
+    ## Putting boundaries on parameter space is useful
+    #x_min = np.array ( 7*[ 0.001,] )
+    #x_max = np.array ( 7*[0.95, ] )
+    #x_max[-1] = 10.
+    #x_min[1] = 0.
+    #x_max[1] = 5.
+    #x_min[4] = 0.
+    #x_max[4] = 5.
+    # First we create the sampling space for the emulators. In the
+    # absence of any further information, we assume a uniform 
+    # distribution between x_min and (x_max - x_min):
+    dist = []
+    for k in xrange( n_params ):
+        dist.append ( ss.uniform ( loc=x_min[k], \
+                              scale = x_max[k] - x_min[k] ) )
+    # The training dataset is obtaiend by a LatinHypercube Design
+    x_train = lhd(dist=dist, size=n_train )
+    # The validation dataset is randomly drawn from within the 
+    # parameter boundaries
+    x_validate = np.random.rand (  n_validate, n_params  )*(x_max - x_min) + \
+        x_min
+    emu_vis = {}
+    emu_nir = {}
+    # We next loop over the input sun angles
+    for sun_angle in sun_angles:
+        # If we've done this sun angle before, skip it
+        if not emu_vis.has_key ( sun_angle ):
+            albedo_train = []
+            albedo_validate = []
+            # The following loop creates the validation dataset
+            for i in xrange( n_validate ):
+                [a_vis, a_nir] = two_stream_model ( x_validate[i,:], \
+                    sun_angle )
+                albedo_validate.append ( [a_vis, a_nir] )
+            # The following loop creates the training dataset
+            for i in xrange ( n_train ):
+                [a_vis, a_nir] = two_stream_model ( x_train[i,:], \
+                    sun_angle )
+                albedo_train.append ( [a_vis, a_nir] )
 
-                albedo_train = np.array ( albedo_train )
-                albedo_validate = np.array ( albedo_validate )
-                # The next few lines create and train the emulators
-                # GP for visible
-                gp_vis = GaussianProcess ( x_train, albedo_train[:,0])
-                theta = gp_vis.learn_hyperparameters(n_tries=4)
-                
-                # GP for NIR
-                gp_nir = GaussianProcess ( x_train, albedo_train[:,1])
-                theta = gp_nir.learn_hyperparameters(n_tries=4)
-                pred_mu, pred_var, par_dev = gp_vis.predict ( x_validate )
-                r_vis = (albedo_validate[:,0] - pred_mu)
-                pred_mu, pred_var, par_dev = gp_nir.predict ( x_validate )
-                r_nir = (albedo_validate[:,1] - pred_mu)
-                # Report some goodness of fit. Could do with more
-                # stats, but for the time being, this is enough.
-                print "Sun Angle: %g, RMSE VIS: %g, RMSE NIR: %g" % \
-                    ( sun_angle, r_vis.std(), r_nir.std() )
-                emu_vis[sun_angle] = gp_vis
-                emu_nir[sun_angle] = gp_nir
-        emulators = {}
-        for sun_angle in emu_vis.iterkeys():
-            emulators[sun_angle] = [ emu_vis[sun_angle], emu_nir[sun_angle] ]
-        return emulators
+            albedo_train = np.array ( albedo_train )
+            albedo_validate = np.array ( albedo_validate )
+            # The next few lines create and train the emulators
+            # GP for visible
+            gp_vis = GaussianProcess ( x_train, albedo_train[:,0])
+            theta = gp_vis.learn_hyperparameters(n_tries=4)
+            
+            # GP for NIR
+            gp_nir = GaussianProcess ( x_train, albedo_train[:,1])
+            theta = gp_nir.learn_hyperparameters(n_tries=4)
+            pred_mu, pred_var, par_dev = gp_vis.predict ( x_validate )
+            r_vis = (albedo_validate[:,0] - pred_mu)
+            pred_mu, pred_var, par_dev = gp_nir.predict ( x_validate )
+            r_nir = (albedo_validate[:,1] - pred_mu)
+            # Report some goodness of fit. Could do with more
+            # stats, but for the time being, this is enough.
+            print "Sun Angle: %g, RMSE VIS: %g, RMSE NIR: %g" % \
+                ( sun_angle, r_vis.std(), r_nir.std() )
+            emu_vis[sun_angle] = gp_vis
+            emu_nir[sun_angle] = gp_nir
+    emulators = {}
+    for sun_angle in emu_vis.iterkeys():
+        emulators[sun_angle] = [ emu_vis[sun_angle], emu_nir[sun_angle] ]
+    return emulators
         
 def select_emulator ( emulators, mask, itime ):
 
@@ -145,7 +145,7 @@ def select_emulator ( emulators, mask, itime ):
     
 class ObservationOperatorTwoStream ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -154,18 +154,14 @@ class ObservationOperatorTwoStream ( object ):
          
         """
         self.state = state
+        
         self.observations = observations
-        try:
-            self.n_bands, self.nt = self.observations.shape
-        except:
-            raise ValueError, "Typically, obs should be n_bands * nt"
+        
         self.mask = mask
-        assert ( self.nt ) == mask.shape[0]
+    
         self.state_grid = state_grid
         self.emulators = emulators
         self.bu = bu
-        self.band_pass = band_pass
-        self.bw = bw
         
     def der_cost ( self, x_dict, state_config ):
 
@@ -195,15 +191,9 @@ class ObservationOperatorTwoStream ( object ):
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
-                #if self.state.transformation_dict.has_key ( param ):
-                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
-                #else:
                 x_params[ j, : ] = x_dict[param]
                 
             elif typo == VARIABLE:
-                #if self.state.transformation_dict.has_key ( param ):
-                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
-                #else:
                 x_params[ j, : ] = x_dict[param]
 
             j += 1

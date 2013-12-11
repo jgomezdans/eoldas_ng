@@ -145,7 +145,7 @@ class State ( object ):
         self.n_params = self._state_vector_size ()
         self.parameter_min = parameter_min
         self.parameter_max = parameter_max
-	self.verbose = verbose
+        self.verbose = verbose
         self.bounds = []
         for ( i, param ) in enumerate ( self.state_config.iterkeys() ):
             self.bounds.append ( [ self.parameter_min[param], \
