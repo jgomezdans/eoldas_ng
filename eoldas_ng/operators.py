@@ -20,6 +20,12 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
+
+class AttributeDict(dict): 
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    
+
 def test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
     f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
     return f#,g.sum(axis=0)
@@ -480,90 +486,108 @@ class ObservationOperatorTimeSeriesGP ( object ):
          
 class ObservationOperatorImageGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, observations, mask, emulators, bu ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
         """
+         observations is an array with n_bands, nt observations. nt has to be the 
+         same size as state_grid (can have dummny numbers in). mask is nt*4 
+         (mask, vza, sza, raa) array.
+         
+         
         """
-        
+        self.state = state
         self.observations = observations
         try:
-            self.n_bands, self.ny, self.nx = self.observations.shape
+            self.n_bands, self.nt = self.observations.shape
         except:
-            raise ValueError, "Typically, obs shuold be n_bands * nx * ny"
+            raise ValueError, "Typically, obs should be n_bands * nt"
         self.mask = mask
-        assert ( self.ny, self.nx ) == mask.shape
+        assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
         self.emulators = emulators
         self.bu = bu
+        self.band_pass = band_pass
+        self.bw = bw
         
     def der_cost ( self, x_dict, state_config ):
-        """Calculate the cost function and its partial derivs for identity obs op
+
+        """The cost function and its partial derivatives. One important thing
+        to note is that GPs have been parameterised in transformed space, 
+        whereas `x_dict` is in "real space". So when we go over the parameter
+        dictionary, we need to transform back to linear units. TODO Clearly, it
+        might be better to have cost functions that report whether they need
+        a dictionary in true or transformed units!
         
-        Takes a parameter dictionary, and a state configuration dictionary"""
+        """
         i = 0
-        cost = 0
+        cost = 0.
         n = 0
-        
-        for typo in x_dict.iteritems():
-            if np.isscalar ( typo[1] ):
-                n = n + 1
-            else:
-                n = n + len ( typo[1] )
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
         der_cost = np.zeros ( n )
+        x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
+        j = 0
+        ii = 0
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nt ) )
+        for param, typo in state_config.iteritems():
         
-        for the_idx in np.ndindex( self.ny, self.nx ):
-            if self.mask[ the_idx ] is False:
-                continue
-            the_obs = self.observations[:, the_idx ]
-            
-            
-        for (idoy_pos, obs_doy ) in enumerate ( self.observations[:,0] ): # This will probably need to be changed
-            # Each day has a different acquisition geometry, so we need
-            # to find the relvant emulator. In this case
-            emulator_key = "emulator_%08.4Gx%08.4Gx%08.4G.npz" % ( self.observations[idoy_pos, [1] ], \
-                self.observations[idoy_pos, [2] ], self.observations[idoy_pos, [3] ])
-            # This is the location of obs_doy in the state grid
-            iloc = self.state_grid == obs_doy
-            # The full state for today will be put together as a dictionary
-            this_doy_dict = {}
-            # Now loop over all parameters
-            for param, typo in state_config.iteritems():
-            
-                if typo == FIXED: # Default value for all times
-                    # 
-                    this_doy_dict[param] = self.default_values[param]
-                    
-                if typo == CONSTANT: # Constant value for all times
-                    # We should get a single scalar from x_dict here
-                    this_doy_dict[param] = x_dict[param]               
-
-                    
-                elif typo == VARIABLE:
-                    # For this particular date, the relevant parameter is at location iloc
-                    this_doy_dict[param] = x_dict[param][iloc]
-            # Now, translate the dictionary to an array or something
-            # I'm hoping that x_dict is an ordered dict, so that the keys are in
-            # prosail-friendly order
-            x_today = [ this_doy_dict[param] \
-                    for param in x_dict.iterkeys() ]
-            fwd_model, der_fwd_model = self.emulators[emulator_key].predict ( x_today )
-            rho = fwd_model.dot(self.bandpass.T)/(self.bandpass.sum(axis=1))
-            # Now, the cost is straightforward
-            residuals = rho - self.observations[idoy_pos, 4+i] 
-            cost += 0.5*residuals**2/self.bu**2
-            #############################
-            ### DERIVATIVE NOT YET DONE
-            ### der_fwd_model is (11, 2101), so need to apply bandpass functions etc
-            ###
-            the_derivatives = der_fwd_model.dot ( residuals ) # or something
-            i = 0
-            for param, typo in state_config.iteritems():
-                if typo == CONSTANT: # Constant value for all times
-                    der_cost[i] += the_derivatives[i]
-                    i += 1        
-                elif typo == VARIABLE:
-                    #For this particular date, the relevant parameter is at location iloc
-                    der_cost[i + i_loc ] =  the_derivatives[i] # vector
-                    i += self.state_grid.size # will this work for 1d and 2d?
-        return cost, der_cost
-
+            if typo == FIXED or  typo == CONSTANT:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
                 
+            elif typo == VARIABLE:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
+
+            j += 1
+        
+
+        for itime, tstep in enumerate ( self.state_grid ):
+            if self.mask[itime, 0] == 0:
+                # No obs here
+                continue
+            # tag here is needed to look for the emulator for this geometry
+            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+            the_emu = self.emulators[ tag ]
+
+            this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
+                 self.observations[:, itime], self.bu, self.band_pass, \
+                 self.bw )
+            
+            #g = scipy.optimize.approx_fprime ( x_params[:, itime], test_fwd_model, 1e-10, the_emu, self.observations[:,itime], self.bu, self.band_pass, self.bw )
+            cost += this_cost
+            the_derivatives[ :, itime] = this_der
+            
+            
+        j = 0
+        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+            if typo == CONSTANT:
+                der_cost[j] = the_derivatives[i, 0]
+                j += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                j += n_elems
+        
+        return cost, der_cost
+    def der_der_cost ( self, x, state_config, epsilon=1.0e-9 ):
+        """Numerical approximation to the Hessian"""
+            
+        N = x.size
+        h = np.zeros((N,N))
+        df_0 = self.der_cost ( x, state_config )[1]
+        for i in xrange(N):
+            xx0 = 1.*x[i]
+            x[i] = xx0 + epsilon
+            df_1 = self.der_cost ( x, state_config )[1]
+            h[i,:] = (df_1 - df_0)/epsilon
+            x[i] = xx0
+        return h

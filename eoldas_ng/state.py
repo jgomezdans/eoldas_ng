@@ -15,7 +15,6 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
-
 class State ( object ):
     
     """A state-definition class
