@@ -36,17 +36,29 @@ def der_test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
 
 
 def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
-        f, g = gp.predict ( np.atleast_2d( x ) )
-        cost = 0
-        der_cost = []
-        
-        for i in xrange( len(band_pass) ):
-            d = f[band_pass[i]].sum()/bw[i] - R[i]
-            #derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
-            derivs = d*g[:, band_pass[i] ]/((band_unc[i]**2))
-            cost += 0.5*np.sum(d*d)/(band_unc[i])**2
-            der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
-        return cost, np.array( der_cost ).squeeze().sum(axis=0)
+    """
+    A generic forward model using GPs. We pass the gp object as `gp`,
+    the value of the state as `x`, the observations as `R`, observational
+    uncertainties per band as `band_unc`, and spectral properties of 
+    bands as `band_pass` and `bw`.
+    
+    Returns
+    -------
+    
+    The cost associated with x, and the partial derivatives.
+    
+    """
+    f, g = gp.predict ( np.atleast_2d( x ) )
+    cost = 0
+    der_cost = []
+    
+    for i in xrange( len(band_pass) ):
+        d = f[band_pass[i]].sum()/bw[i] - R[i]
+        #derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
+        derivs = d*g[:, band_pass[i] ]/((band_unc[i]**2))
+        cost += 0.5*np.sum(d*d)/(band_unc[i])**2
+        der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
+    return cost, np.array( der_cost ).squeeze().sum(axis=0)
 
 def downsample(myarr,factorx,factory):
     """
