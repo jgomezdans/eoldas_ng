@@ -509,11 +509,11 @@ class ObservationOperatorImageGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_bands, self.nt = self.observations.shape
+            self.n_bands, self.nx, self.ny = self.observations.shape
         except:
-            raise ValueError, "Typically, obs should be n_bands * nt"
+            raise ValueError, "Typically, obs should be n_bands * nx * ny"
         self.mask = mask
-        assert ( self.nt ) == mask.shape[0]
+        assert observations.shape[1:] == mask.shape
         self.state_grid = state_grid
         if per_band:
             if band_pass is None:
@@ -564,10 +564,10 @@ class ObservationOperatorImageGP ( object ):
                 n_elems = len ( x_dict[param] )
                 n += n_elems
         der_cost = np.zeros ( n )
-        x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
+        x_params = np.empty ( ( len( x_dict.keys()), self.nx * self.ny ) )
         j = 0
         ii = 0
-        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nt ) )
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nx * self.ny ) )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -584,33 +584,18 @@ class ObservationOperatorImageGP ( object ):
 
             j += 1
         
+        # x_params is [n_params, Nx*Ny]
+        # it should be able to run the emulators directly on x_params, and then do a reshape
+        for band in xrange ( self.n_bands ):
+            # Run the emulator forward. Doing it for all pixels, or only for
+            # the unmasked ones
+            # Also, need to work out whether the size of the state is 
+            # different to that of the observations (ie integrate over coarse res data)
+            fwd_model, emu_err, partial_derv = \
+                self.emulators[band].predict ( x_params[:, self.mask] )
+            cost += 0.5*( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2
+            der_cost += partial_derv[self.mask]( fwd_model[self.mask] - self.observations[band, self.mask] )/self.bu[band]**2
 
-        for itime, tstep in enumerate ( self.state_grid ):
-            if self.mask[itime, 0] == 0:
-                # No obs here
-                continue
-            # tag here is needed to look for the emulator for this geometry
-            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-            the_emu = self.emulators[ tag ]
-
-            this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
-                 self.observations[:, itime], self.bu, self.band_pass, \
-                 self.bw )
-            
-            #g = scipy.optimize.approx_fprime ( x_params[:, itime], test_fwd_model, 1e-10, the_emu, self.observations[:,itime], self.bu, self.band_pass, self.bw )
-            cost += this_cost
-            the_derivatives[ :, itime] = this_der
-            
-            
-        j = 0
-        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
-            if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, 0]
-                j += 1
-            elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
-                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
-                j += n_elems
         
         return cost, der_cost
     
