@@ -498,12 +498,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
          
 class ObservationOperatorImageGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None, per_band=False ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
          (mask, vza, sza, raa) array.
-         
+             
          
         """
         self.state = state
@@ -515,10 +515,33 @@ class ObservationOperatorImageGP ( object ):
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
-        self.emulators = emulators
+        if per_band:
+            if band_pass is None:
+                raise IOError, \
+                    "You want fast emulators, need to provide bandpass fncs!"
+            self._perband_emulators ( emulators, band_pass )
+            self.per_band = True
+        
+        else:
+            self.per_band = False
+            self.emulators = emulators
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+
+    def _perband_emulators ( self, emulators, band_pass ):
+        """This method creates per band emulators from the full-spectrum
+        emulator. Should be faster in many cases"""
+        n_bands = band_pass.shape[0]
+        x_train_pband = [ emulators.X_train[:,band_pass[i,:]].mean(axis=1) \
+            for i in xrange( n_bands ) ]
+        x_train_pband = np.array ( x_train_pband )
+        self.emulators = []
+        for i in xrange( n_bands ):
+            gp = GaussianProcess ( emulators.y_train*1, x_train_pband[i,:] )
+            gp.learn_hyperparameters ( n_tries=5 )
+            self.emulators.append ( gp )
+
         
     def der_cost ( self, x_dict, state_config ):
 
