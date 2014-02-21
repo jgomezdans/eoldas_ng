@@ -150,7 +150,25 @@ class Prior ( object ):
         self.inv_cov = prior_inv_cov
         
                     
-    
+    def first_guess ( self, state_config, n_elems ):
+        """This method provides a simple way to initialise the optimisation: when called
+        with a `state_config` dictionary, it will produce a starting point dictionary that
+        can be used for the optimisation. We also need `n_elems`, the number of elements
+        of the state for the VARIABLE parameters"""
+        x0 = dict()
+        for param, typo in state_config.iteritems():
+            
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass
+                
+            elif typo == CONSTANT: # Constant value for all times
+                x0[param] = self.mu[param]
+            elif typo == VARIABLE:
+                x0[param] = np.ones( n_elems )*self.mu[param]
+                
+        return x0        
+        
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivatives for the prior object
         
