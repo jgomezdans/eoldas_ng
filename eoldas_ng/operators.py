@@ -582,8 +582,9 @@ class ObservationOperatorImageGP ( object ):
                 gps[param] = gp 
         # At this stage, we have the inverse emulators in gps
         x0 = dict()
+        import pdb; pdb.set_trace() 
         for param, gp in gps.iteritems():
-            x0[param] = gp.predict( self.observations[:, self.mask] )[0]
+            x0[param] = gp.predict( self.observations[:, self.mask].T )[0]
         return x0
         
     def der_cost ( self, x_dict, state_config ):

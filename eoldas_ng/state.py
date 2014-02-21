@@ -186,13 +186,15 @@ class State ( object ):
                     for j in xrange ( self.n_elems )]
         return the_bounds
     
-    def optimize ( self, x0, bounds=None ):
+    def optimize ( self, x0=None, bounds=None ):
         
         """Optimise the state starting from a first guess `x0`"""
         
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0, do_transform=True )
-        
+        elif type( x0 ) is str:
+            x0 = self.operators[x0].first_guess( self.state_config )
+            x0 = self.pack_from_dict ( x0, do_transform=False )
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
