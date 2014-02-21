@@ -532,14 +532,15 @@ class ObservationOperatorImageGP ( object ):
     def _perband_emulators ( self, emulators, band_pass ):
         """This method creates per band emulators from the full-spectrum
         emulator. Should be faster in many cases"""
+        from gp_emulator import GaussianProcess
         n_bands = band_pass.shape[0]
         x_train_pband = [ emulators.X_train[:,band_pass[i,:]].mean(axis=1) \
             for i in xrange( n_bands ) ]
         x_train_pband = np.array ( x_train_pband )
         self.emulators = []
         for i in xrange( n_bands ):
-            gp = GaussianProcess ( emulators.y_train*1, x_train_pband[i,:] )
-            gp.learn_hyperparameters ( n_tries=5 )
+            gp = GaussianProcess ( emulators.y_train[:75]*1, x_train_pband[i,:75] )
+            gp.learn_hyperparameters ( n_tries=3 )
             self.emulators.append ( gp )
 
         
@@ -561,7 +562,7 @@ class ObservationOperatorImageGP ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
+                n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
         x_params = np.empty ( ( len( x_dict.keys()), self.nx * self.ny ) )
@@ -580,7 +581,7 @@ class ObservationOperatorImageGP ( object ):
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
-                x_params[ j, : ] = x_dict[param]
+                x_params[ j, : ] = x_dict[param].flatten()
 
             j += 1
         
@@ -592,10 +593,24 @@ class ObservationOperatorImageGP ( object ):
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model, emu_err, partial_derv = \
-                self.emulators[band].predict ( x_params[:, self.mask] )
-            cost += 0.5*( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2
-            der_cost += partial_derv[self.mask]( fwd_model[self.mask] - self.observations[band, self.mask] )/self.bu[band]**2
-
+                self.emulators[band].predict ( x_params[:, self.mask.flatten()].T )
+            # Now calculate the cost increase due to this band...
+            cost += np.sum(0.5*( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2)
+            # And update the partial derivatives
+            the_derivatives += (partial_derv[self.mask.flatten(), :] * \
+                (( fwd_model[self.mask.flatten()] - \
+                self.observations[band, self.mask] ) \
+                /self.bu[band]**2)[:, None]).T
+        
+        j = 0
+        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+            if typo == CONSTANT:
+                der_cost[j] = the_derivatives[i, 0]
+                j += 1
+            elif typo == VARIABLE:
+                n_elems = x_dict[param].size
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                j += n_elems
         
         return cost, der_cost
     

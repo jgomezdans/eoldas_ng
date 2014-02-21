@@ -8,6 +8,7 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+from collections import OrderedDict
 import numpy as np
 import scipy.optimize
 
