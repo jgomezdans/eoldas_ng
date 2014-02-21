@@ -533,6 +533,7 @@ class ObservationOperatorImageGP ( object ):
         self.mask = mask
         assert observations.shape[1:] == mask.shape
         self.state_grid = state_grid
+        self.original_emulators = emulators # Keep around for quick inverse emulators
         if per_band:
             if band_pass is None:
                 raise IOError, \
@@ -557,10 +558,33 @@ class ObservationOperatorImageGP ( object ):
         x_train_pband = np.array ( x_train_pband )
         self.emulators = []
         for i in xrange( n_bands ):
-            gp = GaussianProcess ( emulators.y_train[:75]*1, x_train_pband[i,:75] )
+            gp = GaussianProcess ( emulators.y_train[:75]*1, \
+                    x_train_pband[i,:75] )
             gp.learn_hyperparameters ( n_tries=3 )
             self.emulators.append ( gp )
 
+    def first_guess ( self, state_config ):
+        from gp_emulator import GaussianProcess
+        # For simplicity, let's get the training data out of the emulator
+        X = self.original_emulators.X_train*1.
+        y = self.original_emulators.y_train*1.
+        # Apply band pass functions here...
+        xx = np.array( [ X[:, self.band_pass[i,:]].sum(axis=1)/ \
+            (1.*self.band_pass[i,:].sum()) \
+            for i in xrange(8) ] )
+
+        # A container to store the emulators
+        gps = {}
+        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+            if typo == VARIABLE:
+                gp = GaussianProcess ( xx.T, y[:, i] )
+                gp.learn_hyperparameters( n_tries = 3 )
+                gps[param] = gp 
+        # At this stage, we have the inverse emulators in gps
+        x0 = dict()
+        for param, gp in gps.iteritems():
+            x0[param] = gp.predict( self.observations[:, self.mask] )[0]
+        return x0
         
     def der_cost ( self, x_dict, state_config ):
 
