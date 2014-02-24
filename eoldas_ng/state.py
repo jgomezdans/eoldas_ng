@@ -194,6 +194,10 @@ class State ( object ):
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif type( x0 ) is str:
             x0 = self.operators[x0].first_guess( self.state_config )
+            for param, ptype in self.state_config.iteritems():
+                if ptype == CONSTANT:
+                    if not x0.has_key ( param ):
+                        x0[param] = self.operators ['prior'].mu[param]
             x0 = self.pack_from_dict ( x0, do_transform=False )
         if bounds is None:
             the_bounds = self._get_bounds_list()
