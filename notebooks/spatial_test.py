@@ -109,16 +109,16 @@ def get_proba ():
 if __name__ == "__main__":
     state_config = OrderedDict ()
 
-    state_config['n'] = FIXED
+    state_config['n'] = CONSTANT
     state_config['cab'] = VARIABLE
     state_config['car'] = FIXED
     state_config['cbrown'] = VARIABLE
     state_config['cw'] = FIXED
-    state_config['cm'] = FIXED
+    state_config['cm'] = VARIABLE
     state_config['lai'] = VARIABLE
     state_config['ala'] = FIXED
     state_config['bsoil'] = VARIABLE
-    state_config['psoil'] = FIXED
+    state_config['psoil'] = CONSTANT
 
         
         
@@ -164,7 +164,7 @@ if __name__ == "__main__":
             'ala': lambda x: 90.*x }
 
     # Define the state grid. In time in this case
-    state_grid = np.arange ((100*200)).reshape((100,200))
+    state_grid = np.arange ((300*400)).reshape((400,300))
         
     # Define the state
     # L'etat, c'est moi
@@ -180,15 +180,15 @@ if __name__ == "__main__":
     mu_prior = OrderedDict ()
     prior_inv_cov = OrderedDict ()
     prior_inv_cov['n'] = np.array([1])
-    prior_inv_cov['cab'] = np.array([1.5])
+    prior_inv_cov['cab'] = np.array([2.])
     prior_inv_cov['car'] = np.array([1])
     prior_inv_cov['cbrown'] = np.array([1.5])
     prior_inv_cov['cw'] = np.array([1])
     prior_inv_cov['cm'] = np.array([1.5])
     prior_inv_cov['lai'] = np.array([2.])
     prior_inv_cov['ala'] = np.array([1])
-    prior_inv_cov['bsoil'] = np.array([2])
-    prior_inv_cov['psoil'] = np.array([2])
+    prior_inv_cov['bsoil'] = np.array([3.])
+    prior_inv_cov['psoil'] = np.array([1.])
         
     for param in state.parameter_min.iterkeys():
         if transformations.has_key ( param ):
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     ##########################################################
 
 
-    spatial= SpatialSmoother ( state_grid, 100, required_params=["lai", "cab"] )
+    spatial= SpatialSmoother ( state_grid, 7, required_params=["lai", "cab", "bsoil", "cm"] )
 
 
 
@@ -232,10 +232,11 @@ if __name__ == "__main__":
     # The proba data
     g = get_proba ()
     proba_sel_bands = np.array([40, 23, 56, 29, 34,  1,  6, 13])
-    data = g.ReadAsArray()[ proba_sel_bands, 100:200, 100:300 ]/10000.
+    data = g.ReadAsArray()[ proba_sel_bands, :, : ]/10000.
     band_pass = band_pass[ proba_sel_bands, :]
     the_bands = the_bands [ proba_sel_bands ]
     mask = np.ones_like ( data[0,:,:], dtype=np.bool )
+    #mask[50:75, 100:150 ] = False
     bu = np.ones_like (proba_sel_bands)
     observations = ObservationOperatorImageGP ( state_grid, state, data, mask, emulators[(v,s)], bu, band_pass=band_pass, per_band=True )
     state.add_operator ( "Prior", prior )
@@ -243,7 +244,7 @@ if __name__ == "__main__":
     state.add_operator ( "obs", observations )
     print "Starting optimisation"
     print ""
-    retval = state.optimize ( x0 = "obs" )
+    retval_dict, retval = state.optimize ( x0 = "obs" )
         #{'lai': np.ones_like ( mask )*2., \
                                #'cab': np.ones_like ( mask )*60., \
                                #'cbrown': np.ones_like( mask ) * 0.5, 

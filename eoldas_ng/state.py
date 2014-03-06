@@ -130,6 +130,7 @@ class State ( object ):
                 else:
                 #elif do_transform and self.transformation_dict.has_key ( \
                         #param ):
+                    
                     the_dict[param] = self.default_values[param] 
                 #else:
                     #the_dict[param] = self.default_values[param]
@@ -140,6 +141,11 @@ class State ( object ):
                     the_dict[param] = self.transformation_dict[param]( x[i] )
                 elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
+                    p1 = self.transformation_dict[param] ( self.parameter_max[param] )
+                    p2 = self.transformation_dict[param] ( self.parameter_min[param] )
+                    pmax = max ( p1, p2 )
+                    pmin = min ( p1, p2 )
+                    xx = np.clip ( x[i], p1, p2 )
                     the_dict[param] = self.invtransformation_dict[param]( x[i] )
 
                 else:
@@ -154,9 +160,15 @@ class State ( object ):
                         self.state_grid.shape )
                 elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
-                    the_dict[param] = self.invtransformation_dict[param] ( \
-                        x[i:(i+self.n_elems )]).reshape( \
-                        self.state_grid.shape )
+                    p1 = self.transformation_dict[param] ( self.parameter_max[param] )
+                    p2 = self.transformation_dict[param] ( self.parameter_min[param] )
+                    pmax = max ( p1, p2 )
+                    pmin = min ( p1, p2 )
+                    xx = np.clip ( x[i:(i+self.n_elems )].reshape( \
+                        self.state_grid.shape), p1, p2 )
+                    
+
+                    the_dict[param] = self.invtransformation_dict[param] ( xx )
 
                 else:
                     the_dict[param] = x[i:(i+self.n_elems )].reshape( \
@@ -197,20 +209,56 @@ class State ( object ):
             for param, ptype in self.state_config.iteritems():
                 if ptype == CONSTANT:
                     if not x0.has_key ( param ):
-                        x0[param] = self.operators ['prior'].mu[param]
+                        try:
+                            x0[param] = self.operators ['Prior'].mu[param]
+                        except KeyError:
+                            x0[param] = self.operators ['prior'].mu[param]
+                        
             x0 = self.pack_from_dict ( x0, do_transform=False )
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
-            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=20, disp=1, \
-                 factr=1e-3, maxfun=500, pgtol=1e-20, bounds=the_bounds)
+            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=40, disp=1, \
+                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds)
+            retval = [ r[0]*1 ]
+            #retval = []
+            #retval.append ( x0*1.)
         else:
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
-                bounds=bounds, factr=1e-3, pgtol=1e-20)
-        retval_dict = self._unpack_to_dict ( retval[0], do_transform=True )
+                bounds=bounds, m=40, maxfun=1500, factr=1e-3, pgtol=1e-20)
+        retval_dict = {}
+        retval_dict['real_map'] = self._unpack_to_dict ( r[0], do_invtransform=True )
+        retval_dict['transformed_map'] = self._unpack_to_dict ( r[0], do_invtransform=False )
+        retval_dict.update ( self.do_uncertainty ( r[0] ) )
         
+        return retval_dict
+    
+    def do_uncertainty ( self, x ):
+        
+        the_hessian = scipy.sparse.lil_matrix ( ( x.size, x.size ) )
+        x_dict = self._unpack_to_dict ( x )
+        for op_name, the_op in self.operators.iteritems():
+            try:
+                this_hessian = the_op.der_der_cost ( x, self.state_config, self )
+            except:
+                this_hessian = the_op.der_der_cost ( x_dict, self.state_config, self )
+            print "Saving Hessian to %s.npz" % op_name
+            np.savez ( "%s.npz" % op_name, hessian=this_hessian )
+            the_hessian = the_hessian + this_hessian
+        a_sps = scipy.sparse.csc_matrix( the_hessian )
+        lu_obj = scipy.sparse.linalg.splu( a_sps )
+        post_cov = lu_obj.solve( np.eye(x.size) )
+        #post_cov = np.linalg.inv ( the_hessian )
+        post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
+        ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
+        ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
+        retval = {}
+        retval['post_cov'] = post_cov
+        retval['real_ci5pc'] = ci_5
+        retval['real_ci95pc'] = ci_95
+        retval['post_sigma'] = post_sigma
         return retval
-     
+        
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
          
@@ -220,6 +268,7 @@ class State ( object ):
          aggr_der_cost = x*0.0
          
          for op_name, the_op in self.operators.iteritems():
+             
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost

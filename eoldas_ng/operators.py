@@ -145,7 +145,11 @@ class Prior ( object ):
         could have an estimate of LAI for each time step from climatology, or a
         single value). The inverse covariance (or precision) matrix is either a single
         value ($1/\sigma^{2}$), or a full matrix. If you pass a single value for a
-        VARIABLE parameter, it will be converted into a diagonal matrix automatically"""
+        VARIABLE parameter, it will be converted into a diagonal matrix automatically
+        
+        NOTE that if **transformed variables** are used, the prior needs to be in transformed
+        units, not in real units. 
+        """
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
         
@@ -216,11 +220,47 @@ class Prior ( object ):
         return cost, der_cost
     
 
-    def der_der_cost ( self, x, state_config ):
+    def der_der_cost ( self, x, state_config, state ):
         # Hessian is just C_{prior}^{-1}
         # Needs some thinking for getting parameters in the
         # right positions etc
-        pass
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = x[param].size
+                n += n_elems
+        
+        
+        h1 = np.empty ( ( n, n ) )
+        i = 0
+        for param, typo in state_config.iteritems():
+            
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass
+                
+            elif typo == CONSTANT: # Constant value for all times
+        
+                h1[i,i ] = self.inv_cov[param]
+                i += 1                
+                
+            elif typo == VARIABLE:
+                if self.inv_cov[param].size == 1:
+                    hs = np.diag ( np.ones(n_elems)*self.inv_cov[param] )
+        
+                    h1[i:(i+n_elems), i:(i+n_elems) ] = hs
+                else:
+        
+                    h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param] 
+                i += n_elems
+        # Typically, the matrix wil be sparse. In fact, in many situations,
+        # it'll be purely diagonal, but in general, LIL is a good format
+        H = scipy.sparse.lil_matrix ( h1 )
+        
+        
+        return H # Return the hessian contribution from the prior
     
     
 
@@ -233,8 +273,14 @@ class TemporalSmoother ( object ):
         I = np.identity( state_grid.shape[0] )
         self.D1 = np.matrix(I - np.roll(I,1))
         self.D1 = self.D1 * self.D1.T
-        self.gamma = gamma
+        
         self.required_params = required_params
+        if required_params is not None:
+            n_reg_params = len ( required_params )
+            if np.size ( gamma ) == 1:
+                self.gamma = gamma*np.ones ( n_reg_params )
+            else:
+                self.gamma = gamma
         
     def der_cost ( self, x_dict, state_config):
         """Calculate the cost function and its partial derivs for a time smoother
@@ -259,7 +305,7 @@ class TemporalSmoother ( object ):
                 n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
-
+        isel_param = 0
         for param, typo in state_config.iteritems():
             
             if typo == FIXED: # Default value for all times
@@ -277,21 +323,48 @@ class TemporalSmoother ( object ):
                     xa = np.matrix ( x_dict[param] )
                     
                     cost = cost + \
-                        0.5*self.gamma*(np.sum(np.array(self.D1.dot(xa.T))**2))
-                    der_cost[i:(i+self.n_elems)] = np.array( self. gamma*np.dot((self.D1).T, \
+                        0.5*self.gamma[isel_param]*(np.sum(np.array(self.D1.dot(xa.T))**2))
+                    der_cost[i:(i+self.n_elems)] = np.array( self. gamma[isel_param]*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
                     #der_cost[i] = 0
                     #der_cost[i+n_elems-1] = 0
                 i += self.n_elems
-                
+                isel_param += 1
                 
         return cost, der_cost
     
-    def der_der_cost ( self ):
+    def der_der_cost ( self, x, state_config, state ):
         """The Hessian (rider)"""
-        return self.gamma*np.dot ( self.D1,np.eye( self.n_elems )).dot( \
-            self.D1.T)
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = x[param].size
+                n += n_elems
+        
+        h = np.empty ( (n ,n ) )
+        i = 0
+        isel_param = 0
+        for param, typo in state_config.iteritems():
             
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass
+                
+            elif typo == CONSTANT: # Constant value for all times
+                h[i, i ] = 0.0
+                i += 1                
+                
+            elif typo == VARIABLE:
+                if param in self.required_params:
+                    hessian = self.gamma[isel_param]*np.dot ( \
+                         self.D1,np.eye( self.n_elems )).dot( self.D1.T )
+                    h[i:(i+n_elems), i:(i+n_elems) ] = hessian
+                    isel_param += 1
+                    i += n_elems
+        H = scipy.sparse.lil_matrix ( h  )
+        return H
 
 class SpatialSmoother ( object ):
     """MRF prior"""
@@ -429,6 +502,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.band_pass = band_pass
         self.bw = bw
         
+    
     def der_cost ( self, x_dict, state_config ):
 
         """The cost function and its partial derivatives. One important thing
@@ -499,19 +573,134 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 j += n_elems
         
         return cost, der_cost
-    def der_der_cost ( self, x, state_config, epsilon=1.0e-9 ):
+    
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
         """Numerical approximation to the Hessian"""
-            
-        N = x.size
-        h = np.zeros((N,N))
-        df_0 = self.der_cost ( x, state_config )[1]
-        for i in xrange(N):
-            xx0 = 1.*x[i]
-            x[i] = xx0 + epsilon
-            df_1 = self.der_cost ( x, state_config )[1]
-            h[i,:] = (df_1 - df_0)/epsilon
-            x[i] = xx0
-        return h
+        
+        ####x = state.pack_from_dict ( x_dict )
+        ####N = x.size
+        ####h = np.zeros((N,N))
+        ##### convert x to x_dict
+        ####x_dict = state._unpack_to_dict ( x )
+        ####df_0 = self.der_cost ( x_dict, state_config )[1]
+        ####for i in xrange(N):
+            ####xx0 = 1.*x[i]
+            ####x[i] = xx0 + epsilon
+            ##### convert x to x_dict
+            ####x_dict = state._unpack_to_dict ( x )
+            ####df_1 = self.der_cost ( x_dict, state_config )[1]
+            ####h[i,:] = (df_1 - df_0)/epsilon
+            ####x[i] = xx0
+        ####hh = scipy.sparse.lil_matrix ( h )
+        ####np.savez ( "h_numerical.npz", h=h )
+        
+        ha = self.der_der_cost_anal ( x_dict, state_config, state, epsilon=epsilon )
+        return ha
+
+    def  der_der_cost_anal ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
+        """The cost function and its partial derivatives. One important thing
+        to note is that GPs have been parameterised in transformed space, 
+        whereas `x_dict` is in "real space". So when we go over the parameter
+        dictionary, we need to transform back to linear units. TODO Clearly, it
+        might be better to have cost functions that report whether they need
+        a dictionary in true or transformed units!
+        
+        """
+        
+        i = 0
+        cost = 0.
+        n = 0
+        
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = len ( x_dict[param] )
+                n += n_elems
+        der_cost = np.zeros ( n )
+        h = np.zeros ( (n,n))#scipy.sparse.lil_matrix( ( n, n ))
+        x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
+        j = 0
+        ii = 0
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nt ) )
+        param_pattern = np.zeros ( len( state_config.items()))
+        for param, typo in state_config.iteritems():
+        
+            if typo == FIXED:  
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
+                param_pattern[j] = FIXED
+            elif typo == CONSTANT:
+                x_params[ j, : ] = x_dict[param]
+                param_pattern[j] = CONSTANT
+                
+            elif typo == VARIABLE:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
+                param_pattern[j] = VARIABLE
+
+            j += 1
+        
+        n_const = np.sum ( param_pattern == CONSTANT )
+        n_var = np.sum ( param_pattern == VARIABLE )
+        n_grid = self.nt # don't ask...
+        for itime, tstep in enumerate ( self.state_grid ):
+            if self.mask[itime, 0] == 0:
+                # No obs here
+                continue
+            # tag here is needed to look for the emulator for this geometry
+            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+            the_emu = self.emulators[ tag ]
+            xs = x_params[:, itime]*1
+            dummy, df_0 = fwd_model ( the_emu, xs, \
+                     self.observations[:, itime], self.bu, self.band_pass, \
+                     self.bw )
+            iloc = 0
+            iiloc = 0
+            for i,fin_diff in enumerate(param_pattern):
+                if fin_diff == 1: # FIXED
+                    continue                    
+                xxs = xs[i]*1
+                xs[i] += epsilon
+                dummy, df_1= fwd_model ( the_emu, xs, \
+                     self.observations[:, itime], self.bu, self.band_pass, \
+                     self.bw )
+
+                # Calculate d2f/d2x
+                
+                hs =  (df_1 - df_0)/epsilon
+                if fin_diff == 2: # CONSTANT
+                    iloc += 1
+                elif fin_diff == 3: # VARIABLE
+                    iloc = n_const + iiloc*n_grid + itime
+                    iiloc += 1
+     
+                jloc = 0
+                jjloc = 0
+                for j,jfin_diff in enumerate(param_pattern):
+                    if jfin_diff == FIXED: 
+                        continue
+                    if jfin_diff == CONSTANT: 
+                        jloc += 1
+                    elif jfin_diff == VARIABLE: 
+                        jloc = n_const + jjloc*n_grid + itime
+                        jjloc += 1
+                    
+                    h[iloc, jloc] = hs[j]                
+
+
+
+                xs[i] = xxs
+
+        return scipy.sparse.lil_matrix ( h.T )
+        
+
+
+
 
          
 class ObservationOperatorImageGP ( object ):
@@ -584,7 +773,9 @@ class ObservationOperatorImageGP ( object ):
         x0 = dict()
         
         for param, gp in gps.iteritems():
-            x0[param] = gp.predict( self.observations[:, self.mask].T )[0]
+            x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
+            x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T )[0]
+            x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
         return x0
         
     def der_cost ( self, x_dict, state_config ):
@@ -640,10 +831,15 @@ class ObservationOperatorImageGP ( object ):
             # Now calculate the cost increase due to this band...
             cost += np.sum(0.5*( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2)
             # And update the partial derivatives
-            the_derivatives += (partial_derv[self.mask.flatten(), :] * \
-                (( fwd_model[self.mask.flatten()] - \
+            #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
+                #(( fwd_model[self.mask.flatten()] - \
+                #self.observations[band, self.mask] ) \
+                #/self.bu[band]**2)[:, None]).T
+            the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
+                (( fwd_model[:] - \
                 self.observations[band, self.mask] ) \
                 /self.bu[band]**2)[:, None]).T
+
         
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
