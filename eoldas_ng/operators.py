@@ -265,7 +265,9 @@ class TemporalSmoother ( object ):
             The state as a dictionary
         state_config: oredered dict
             The configuration dictionary
-        
+        state: State
+            The state is required in some cases to gain access to parameter
+            transformations.
         Returns
         ---------
         Hess: sparse matrix
@@ -377,15 +379,31 @@ class ObservationOperator ( object ):
         self.factor = factor
         
     def der_cost ( self, x_dict, state_config ):
-        """Calculate the cost function and its partial derivs for identity obs op
+        """Calculate the cost function and its partial derivs for a identity
+        observation operator (i.e., where the observations are the same magnitude
+        as the state)
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
         
-        Takes a parameter dictionary, and a state configuration dictionary"""
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+        """
         i = 0
         cost = 0
         n = 0
         # n is used to calculate the size of the derivative vector. 
         # This should be part of the state
         # TODO pass the der_cost array and modify in-place!
+        
         for typo in x_dict.iteritems():
             if np.isscalar ( typo[1] ):
                 n = n + 1
@@ -455,6 +473,21 @@ class ObservationOperatorTimeSeriesGP ( object ):
         dictionary, we need to transform back to linear units. TODO Clearly, it
         might be better to have cost functions that report whether they need
         a dictionary in true or transformed units!
+
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+
         
         """
         i = 0
@@ -480,7 +513,6 @@ class ObservationOperatorTimeSeriesGP ( object ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
                 x_params[ j, : ] = x_dict[param]
-
             j += 1
         
 
@@ -489,14 +521,15 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 # No obs here
                 continue
             # tag here is needed to look for the emulator for this geometry
+            # TODO Get a method to fish out the "tag"
             tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
             the_emu = self.emulators[ tag ]
-
+            
+            # TODO fwd_model needs to be *VERY* generic!
             this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
                  self.observations[:, itime], self.bu, self.band_pass, \
                  self.bw )
             
-            #g = scipy.optimize.approx_fprime ( x_params[:, itime], test_fwd_model, 1e-10, the_emu, self.observations[:,itime], self.bu, self.band_pass, self.bw )
             cost += this_cost
             the_derivatives[ :, itime] = this_der
             
@@ -517,10 +550,26 @@ class ObservationOperatorTimeSeriesGP ( object ):
         """Numerical approximation to the Hessian. This approximation is quite
         simple, and is based on a finite differences of the individual terms of 
         the cost function. Note that this method shares a lot with the `der_cost`
-        method in the same function, and a refactoring is probably required.
-        
-        The returned matrix is a sparse (LIL) matrix.
+        method in the same function, and a refactoring is probably required, or
+        even better, a more "analytic" expression making use of the properties of
+        GPs to calculate the second derivatives.
+                
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        state: State
+            The state is required in some cases to gain access to parameter
+            transformations.
+        Returns
+        ---------
+        Hess: sparse matrix
+            The hessian for the cost function at `x`
         """
+        
         
         i = 0
         cost = 0.
@@ -579,16 +628,13 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 dummy, df_1= fwd_model ( the_emu, xs, \
                      self.observations[:, itime], self.bu, self.band_pass, \
                      self.bw )
-
                 # Calculate d2f/d2x
-                
                 hs =  (df_1 - df_0)/epsilon
                 if fin_diff == 2: # CONSTANT
                     iloc += 1
                 elif fin_diff == 3: # VARIABLE
                     iloc = n_const + iiloc*n_grid + itime
                     iiloc += 1
-     
                 jloc = 0
                 jjloc = 0
                 for j,jfin_diff in enumerate(param_pattern):
@@ -599,11 +645,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                     elif jfin_diff == VARIABLE: 
                         jloc = n_const + jjloc*n_grid + itime
                         jjloc += 1
-                    
                     h[iloc, jloc] = hs[j]                
-
-
-
                 xs[i] = xxs
 
         return scipy.sparse.lil_matrix ( h.T )
