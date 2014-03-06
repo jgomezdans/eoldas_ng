@@ -55,14 +55,27 @@ class Prior ( object ):
         """This method provides a simple way to initialise the optimisation: when called
         with a `state_config` dictionary, it will produce a starting point dictionary that
         can be used for the optimisation. We also need `n_elems`, the number of elements
-        of the state for the VARIABLE parameters"""
+        of the state for the VARIABLE parameters
+        
+        Parameters
+        ----------
+        state_config:dict
+            A state configuration ordered dictionary
+        n_elems: int
+            The number of elements for VARIABLE state components
+        
+        Returns
+        -------
+        x0: dict
+            A dictionary that can the be used as a starting point for optimisation.
+        """
+        
         x0 = dict()
         for param, typo in state_config.iteritems():
             
             if typo == FIXED: # Default value for all times
                 # Doesn't do anything so we just skip
-                pass
-                
+                pass        
             elif typo == CONSTANT: # Constant value for all times
                 x0[param] = self.mu[param]
             elif typo == VARIABLE:
@@ -71,35 +84,51 @@ class Prior ( object ):
         return x0        
         
     def der_cost ( self, x_dict, state_config ):
-        """Calculate the cost function and its partial derivatives for the prior object
+        """Calculate the cost function and its partial derivatives for the prior object.
+        Assumptions of normality are clear# Constant value for all times
+        Takes a parameter dictionary, and a state configuration dictionary as
+        inputs.
         
-        Takes a parameter dictionary, and a state configuration dictionary"""
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
         
-        i = 0
-        cost = 0
-        
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+        """
+
+        # Find out about problems size
         n, n_elems = get_problem_size ( x_dict, state_config )
-        
+        # Allocate space/initialise the outputs
         der_cost = np.zeros ( n )
-        
+        cost = 0
+        # The next loop calculates the cost and associated partial derivatives
+        # Mainly based on the parameter type
+        i = 0 # Loop variable
         for param, typo in state_config.iteritems():
-            
-            if typo == FIXED: # Default value for all times
+            if typo == FIXED: 
                 # Doesn't do anything so we just skip
                 pass
-                
-            elif typo == CONSTANT: # Constant value for all times
-                cost = cost + 0.5*( x_dict[param] - self.mu[param])**2*self.inv_cov[param]
-                der_cost[i] = ( x_dict[param] - self.mu[param])*self.inv_cov[param]
-                
+            elif typo == CONSTANT: 
+                cost = cost + 0.5*( x_dict[param] - \
+                            self.mu[param])**2*self.inv_cov[param]
+                der_cost[i] = ( x_dict[param] - self.mu[param]) * \
+                            self.inv_cov[param]
                 i += 1                
-                
             elif typo == VARIABLE:
-                
                 if self.inv_cov[param].size == 1:
+                    # Single parameter for all sites/locations etc
+                    # This should really be in the __init__ method!
                     sigma = self.inv_cov[param]
                     self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
-                    
+                
                 cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( \
                             self.inv_cov[param] )
                 cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - \
@@ -112,28 +141,38 @@ class Prior ( object ):
     
 
     def der_der_cost ( self, x, state_config, state ):
-        # Hessian is just C_{prior}^{-1}
-        # Needs some thinking for getting parameters in the
-        # right positions etc
+        """ The Hessian is just the inverse prior covariance matrix.
+        However, we require the extra parameters for consistency, and
+        to work out the positioning of the Hessian elements. The returned
+        matrix is LIL-sparse.
+        
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        -------
+        Hess: sparse matrix
+            The hessian for the cost function at `x`
+        """
         
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.empty ( ( n, n ) )
         i = 0
         for param, typo in state_config.iteritems():
             
-            if typo == FIXED: # Default value for all times
-                # Doesn't do anything so we just skip
+            if typo == FIXED:
                 pass
-                
-            elif typo == CONSTANT: # Constant value for all times
-        
+            elif typo == CONSTANT:        
                 h1[i,i ] = self.inv_cov[param]
                 i += 1                
-                
             elif typo == VARIABLE:
                 if self.inv_cov[param].size == 1:
                     hs = np.diag ( np.ones(n_elems)*self.inv_cov[param] )
-        
                     h1[i:(i+n_elems), i:(i+n_elems) ] = hs
                 else:
         
@@ -141,10 +180,8 @@ class Prior ( object ):
                 i += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
-        H = scipy.sparse.lil_matrix ( h1 )
+        return scipy.sparse.lil_matrix ( h1 )
         
-        
-        return H # Return the hessian contribution from the prior
     
     
 
@@ -167,9 +204,26 @@ class TemporalSmoother ( object ):
                 self.gamma = gamma
         
     def der_cost ( self, x_dict, state_config):
-        """Calculate the cost function and its partial derivs for a time smoother
+        """
+        Calculate the cost function and its partial derivs for a temporal smoother.
+        Takes a parameter state dictionary, and a state configuration dictionary as
+        inputs.
         
-        Takes a parameter dictionary, and a state configuration dictionary"""
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        ---------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+        """
         i = 0
         cost = 0
         n = 0
@@ -180,33 +234,43 @@ class TemporalSmoother ( object ):
         isel_param = 0
         for param, typo in state_config.iteritems():
             
-            if typo == FIXED: # Default value for all times
-                # Doesn't do anything so we just skip
+            if typo == FIXED: 
                 pass
-                
-            if typo == CONSTANT: # Constant value for all times
+            if typo == CONSTANT: 
                 # No model constraint!
-                               
                 i += 1                
-                
             elif typo == VARIABLE:
                 if param in self.required_params :
-                    
                     xa = np.matrix ( x_dict[param] )
-                    
                     cost = cost + \
                         0.5*self.gamma[isel_param]*(np.sum(np.array(self.D1.dot(xa.T))**2))
-                    der_cost[i:(i+self.n_elems)] = np.array( self. gamma[isel_param]*np.dot((self.D1).T, \
+                    der_cost[i:(i+self.n_elems)] = np.array( \
+                        self. gamma[isel_param]*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
-                    #der_cost[i] = 0
-                    #der_cost[i+n_elems-1] = 0
                 i += self.n_elems
                 isel_param += 1
                 
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state ):
-        """The Hessian (rider)"""
+        """ The Hessian for this cost function is determined analytically, but
+        we need some additional parameters for consistency, and
+        to work out the positioning of the Hessian elements. The returned
+        matrix is LIL-sparse (Mostly, it's multidiagonal).
+        
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        ---------
+        Hess: sparse matrix
+            The hessian for the cost function at `x`
+        """
         n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
@@ -235,8 +299,7 @@ class TemporalSmoother ( object ):
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
-        H = scipy.sparse.lil_matrix ( h  )
-        return H
+        return scipy.sparse.lil_matrix ( h  )
 
 class SpatialSmoother ( object ):
     """MRF prior"""
@@ -246,9 +309,25 @@ class SpatialSmoother ( object ):
         self.required_params = required_params
         
     def der_cost ( self, x_dict, state_config):
-        """Calculate the cost function and its partial derivs for a time smoother
+        """Calculate the cost function and its partial derivs for a spatial 
+        constraint (aka Markov Random Field, MRF)
         
-        Takes a parameter dictionary, and a state configuration dictionary"""
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+        """
+
         i = 0
         cost = 0
         n = 0
