@@ -1,3 +1,4 @@
+.ipynb_checkpoint*
 *.py[cod]
 *.py~
 *.npz
