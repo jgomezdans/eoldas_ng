@@ -26,109 +26,6 @@ class AttributeDict(dict):
     __setattr__ = dict.__setitem__
     
 
-def test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
-    f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
-    return f#,g.sum(axis=0)
-
-def der_test_fwd_model ( x, the_emu, obs, bu, band_pass, bw):
-    f,g = fwd_model ( the_emu, x, obs, bu, band_pass, bw )
-    return g
-
-
-def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
-    """
-    A generic forward model using GPs. We pass the gp object as `gp`,
-    the value of the state as `x`, the observations as `R`, observational
-    uncertainties per band as `band_unc`, and spectral properties of 
-    bands as `band_pass` and `bw`.
-    
-    Returns
-    -------
-    
-    The cost associated with x, and the partial derivatives.
-    
-    """
-    f, g = gp.predict ( np.atleast_2d( x ) )
-    cost = 0
-    der_cost = []
-    
-    for i in xrange( len(band_pass) ):
-        d = f[band_pass[i]].sum()/bw[i] - R[i]
-        #derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
-        derivs = d*g[:, band_pass[i] ]/((band_unc[i]**2))
-        cost += 0.5*np.sum(d*d)/(band_unc[i])**2
-        der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
-    return cost, np.array( der_cost ).squeeze().sum(axis=0)
-
-def downsample(myarr,factorx,factory):
-    """
-    Downsample a 2D array by averaging over *factor* pixels in each axis.
-    Crops upper edge if the shape is not a multiple of factor.
-
-    This code is pure numpy and should be fast.
-    Leeched from <https://code.google.com/p/agpy/source/browse/trunk/agpy/downsample.py?r=114>
-    """
-    xs,ys = myarr.shape
-    crarr = myarr[:xs-(xs % int(factorx)),:ys-(ys % int(factory))]
-    dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
-        for i in range(factorx)] 
-        for j in range(factory)]).mean(axis=0)
-    return dsarr
-
-def fit_smoothness (  x, sigma_model  ):
-    """
-    This function calculates the spatial smoothness constraint. We use
-    a numpy strides trick to efficiently evaluate the neighbours. Note
-    that there are no edges here, we just ignore the first and last
-    rows and columns. Also note that we could have different weights
-    for x and y smoothing (indeed, diagonal smoothing) quite simply
-    """
-    # Build up the 8-neighbours
-    hood = np.array ( [  x[:-2, :-2], x[:-2, 1:-1], x[ :-2, 2: ], \
-                    x[ 1:-1,:-2], x[1:-1, 2:], \
-                    x[ 2:,:-2], x[ 2:, 1:-1], x[ 2:, 2:] ] )
-    j_model = 0
-    der_j_model = x*0
-    for i in [1,3,4,6]:#range(8):
-        j_model = j_model + 0.5*np.sum ( ( hood[i,:,:] - \
-	  x[1:-1,1:-1] )**2 )/sigma_model**2
-        der_j_model[1:-1,1:-1] = der_j_model[1:-1,1:-1] - \
-	  ( hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
-    return ( j_model, 2*der_j_model )
-
-def fit_observations_gauss ( x, obs, sigma_obs, qa, factor=1 ):
-    """
-    A fit to the observations term. This function returns the likelihood
-
-    
-    """
-    if factor == 1:
-        der_j_obs = np.where ( qa == 1, (x - obs)/sigma_obs**2, 0 )
-        j_obs = np.where ( qa  == 1, 0.5*(x - obs)**2/sigma_obs**2, 0 )
-        j_obs = j_obs.sum()
-    else:
-        j_obs, der_j_obs = fit_obs_spat ( x, obs, sigma_obs, qa, factor )
-
-    return ( j_obs, der_j_obs )
-
-  
-def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
-    """
-    A fit to the observations term. This function returns the likelihood
-
-    
-    """
-    import scipy.ndimage.interpolation
-    
-    xa = downsample ( x, factor[0], factor[1] )
-    
-    assert ( xa.shape == obs.shape )
-    der_j_obs = np.where ( qa == 1, (xa - obs)/sigma_obs**2, 0 )
-    
-    der_j_obs = scipy.ndimage.interpolation.zoom ( der_j_obs, factor, order=1 )
-    j_obs = np.where ( qa == 1, 0.5*(xa - obs)**2/sigma_obs**2, 0 )
-    j_obs = j_obs.sum()
-    return ( j_obs, der_j_obs )
 
 
          
@@ -181,13 +78,8 @@ class Prior ( object ):
         i = 0
         cost = 0
         
-        n = 0
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = x_dict[param].size
-                n += n_elems
+        n, n_elems = get_problem_size ( x_dict, state_config )
+        
         der_cost = np.zeros ( n )
         
         for param, typo in state_config.iteritems():
@@ -197,7 +89,6 @@ class Prior ( object ):
                 pass
                 
             elif typo == CONSTANT: # Constant value for all times
-                
                 cost = cost + 0.5*( x_dict[param] - self.mu[param])**2*self.inv_cov[param]
                 der_cost[i] = ( x_dict[param] - self.mu[param])*self.inv_cov[param]
                 
@@ -224,15 +115,8 @@ class Prior ( object ):
         # Hessian is just C_{prior}^{-1}
         # Needs some thinking for getting parameters in the
         # right positions etc
-        n = 0
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = x[param].size
-                n += n_elems
         
-        
+        n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.empty ( ( n, n ) )
         i = 0
         for param, typo in state_config.iteritems():
@@ -291,19 +175,7 @@ class TemporalSmoother ( object ):
         n = 0
         self.required_params = self.required_params or state_config.keys()
         
-        
-        ## This is a nice idea if you wanted to e.g. solve for
-        ## gamma....
-        ##if x_dict.has_key ( 'gamma' ):
-            ##self.gamma = x_dict['gamma']
-            ##x_dict.pop ( 'gamma' )
-        n = 0
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = x_dict[param].size
-                n += n_elems
+        n, n_elems = get_problem_size ( x_dict, state_config )        
         der_cost = np.zeros ( n )
         isel_param = 0
         for param, typo in state_config.iteritems():
@@ -382,15 +254,8 @@ class SpatialSmoother ( object ):
         n = 0
         self.required_params = self.required_params or state_config.keys()
         
-
-        n = 0
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = x_dict[param].size
-                n += n_elems
-            
+        n, n_elems = get_problem_size ( x_dict, state_config )
+        
         der_cost = np.zeros ( n )
 
         for param, typo in state_config.iteritems():
@@ -515,19 +380,14 @@ class ObservationOperatorTimeSeriesGP ( object ):
         """
         i = 0
         cost = 0.
-        n = 0
-        n = 0
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
-                n += n_elems
+        n, n_elems = get_problem_size ( x_dict, state_config )
         der_cost = np.zeros ( n )
-        x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
+        x_params = np.empty ( ( len( x_dict.keys()), \
+                self.nt ) )
         j = 0
         ii = 0
-        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nt ) )
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), \
+                self.nt ) )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -575,50 +435,21 @@ class ObservationOperatorTimeSeriesGP ( object ):
         return cost, der_cost
     
     def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
-        """Numerical approximation to the Hessian"""
+        """Numerical approximation to the Hessian. This approximation is quite
+        simple, and is based on a finite differences of the individual terms of 
+        the cost function. Note that this method shares a lot with the `der_cost`
+        method in the same function, and a refactoring is probably required.
         
-        ####x = state.pack_from_dict ( x_dict )
-        ####N = x.size
-        ####h = np.zeros((N,N))
-        ##### convert x to x_dict
-        ####x_dict = state._unpack_to_dict ( x )
-        ####df_0 = self.der_cost ( x_dict, state_config )[1]
-        ####for i in xrange(N):
-            ####xx0 = 1.*x[i]
-            ####x[i] = xx0 + epsilon
-            ##### convert x to x_dict
-            ####x_dict = state._unpack_to_dict ( x )
-            ####df_1 = self.der_cost ( x_dict, state_config )[1]
-            ####h[i,:] = (df_1 - df_0)/epsilon
-            ####x[i] = xx0
-        ####hh = scipy.sparse.lil_matrix ( h )
-        ####np.savez ( "h_numerical.npz", h=h )
-        
-        ha = self.der_der_cost_anal ( x_dict, state_config, state, epsilon=epsilon )
-        return ha
-
-    def  der_der_cost_anal ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
-        """The cost function and its partial derivatives. One important thing
-        to note is that GPs have been parameterised in transformed space, 
-        whereas `x_dict` is in "real space". So when we go over the parameter
-        dictionary, we need to transform back to linear units. TODO Clearly, it
-        might be better to have cost functions that report whether they need
-        a dictionary in true or transformed units!
-        
+        The returned matrix is a sparse (LIL) matrix.
         """
         
         i = 0
         cost = 0.
-        n = 0
         
-        for param, typo in state_config.iteritems():
-            if typo == CONSTANT:
-                n += 1
-            elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
-                n += n_elems
+        n, n_elems = get_problem_size ( x_dict, state_config )
+        
         der_cost = np.zeros ( n )
-        h = np.zeros ( (n,n))#scipy.sparse.lil_matrix( ( n, n ))
+        h = np.zeros ( (n,n))
         x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
         j = 0
         ii = 0
