@@ -486,9 +486,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         cost: float
             The value of the cost function
         der_cost: array
-            An array with the partial derivatives of the cost function
-
-        
+            An array with the partial derivatives of the cost function        
         """
         i = 0
         cost = 0.
@@ -679,7 +677,7 @@ class ObservationOperatorImageGP ( object ):
             if band_pass is None:
                 raise IOError, \
                     "You want fast emulators, need to provide bandpass fncs!"
-            self._perband_emulators ( emulators, band_pass )
+            self.emulators = perband_emulators ( emulators, band_pass )
             self.per_band = True
         
         else:
@@ -689,41 +687,18 @@ class ObservationOperatorImageGP ( object ):
         self.band_pass = band_pass
         self.bw = bw
 
-    def _perband_emulators ( self, emulators, band_pass ):
-        """This method creates per band emulators from the full-spectrum
-        emulator. Should be faster in many cases"""
-        from gp_emulator import GaussianProcess
-        n_bands = band_pass.shape[0]
-        x_train_pband = [ emulators.X_train[:,band_pass[i,:]].mean(axis=1) \
-            for i in xrange( n_bands ) ]
-        x_train_pband = np.array ( x_train_pband )
-        self.emulators = []
-        for i in xrange( n_bands ):
-            gp = GaussianProcess ( emulators.y_train[:75]*1, \
-                    x_train_pband[i,:75] )
-            gp.learn_hyperparameters ( n_tries=3 )
-            self.emulators.append ( gp )
 
     def first_guess ( self, state_config ):
-        from gp_emulator import GaussianProcess
-        # For simplicity, let's get the training data out of the emulator
-        X = self.original_emulators.X_train*1.
-        y = self.original_emulators.y_train*1.
-        # Apply band pass functions here...
-        xx = np.array( [ X[:, self.band_pass[i,:]].sum(axis=1)/ \
-            (1.*self.band_pass[i,:].sum()) \
-            for i in xrange(8) ] )
-
-        # A container to store the emulators
-        gps = {}
-        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
-            if typo == VARIABLE:
-                gp = GaussianProcess ( xx.T, y[:, i] )
-                gp.learn_hyperparameters( n_tries = 3 )
-                gps[param] = gp 
-        # At this stage, we have the inverse emulators in gps
-        x0 = dict()
+        """
+        A method to provide a first guess of the state. The idea here is to take the GPs, 
+        and recast them, so that rather than provide an emulator, they provide a regressor
+        from input reflectance/radiance etc to surface parameters
+        """
         
+        gps = create_inverse_emulators ( self.original_emulators, \
+            self.band_pass, state_config )
+
+        x0 = dict()        
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
             x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T )[0]
@@ -732,13 +707,27 @@ class ObservationOperatorImageGP ( object ):
         
     def der_cost ( self, x_dict, state_config ):
 
-        """The cost function and its partial derivatives. One important thing
+        """
+        The cost function and its partial derivatives. One important thing
         to note is that GPs have been parameterised in transformed space, 
         whereas `x_dict` is in "real space". So when we go over the parameter
         dictionary, we need to transform back to linear units. TODO Clearly, it
         might be better to have cost functions that report whether they need
         a dictionary in true or transformed units!
         
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
         """
         i = 0
         cost = 0.

@@ -1,4 +1,72 @@
+#!/usr/bin/env python
+"""
+EOLDAS ng utililty functions
+================================
 
+A number of functions to deal with GP emulators etc that
+are required for the EOLDAS opereators
+"""
+
+__author__  = "J Gomez-Dans"
+__version__ = "1.0 (1.12.2013)"
+__email__   = "j.gomez-dans@ucl.ac.uk"
+
+import numpy as np
+import scipy.ndimage.interpolation
+
+from gp_emulator import GaussianProcess
+
+def create_inverse_emulators ( original_emulator, band_pass, state_config ):
+    """
+    This function takes a multivariable output trained emulator
+    and "retrains it" to take input reflectances and report a
+    prediction of single input parameters (i.e., regression from
+    reflectance/radiance to state). This is a useful starting 
+    point for spatial problems.
+    
+    Parameters
+    ------------
+    original_emulator: emulator
+        An emulator (type gp_emulator.GaussianProcess)
+    band_pass: array
+        A 2d bandpass array (nbands, nfreq). Logical type
+    state_config: ordered dict
+        A state configuration ordered dictionary.
+    """
+    
+    # For simplicity, let's get the training data out of the emulator
+    X = original_emulator.X_train*1.
+    y = original_emulator.y_train*1.
+    # Apply band pass functions here...
+    n_bands = band_pass.shape[0]
+    xx = np.array( [ X[:, band_pass[i,:]].sum(axis=1)/ \
+        (1.*band_pass[i,:].sum()) \
+        for i in xrange( n_bands ) ] )
+
+    # A container to store the emulators
+    gps = {}
+    for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+        if typo == VARIABLE:
+            gp = GaussianProcess ( xx.T, y[:, i] )
+            gp.learn_hyperparameters( n_tries = 3 )
+            gps[param] = gp 
+    return gps
+    
+def perband_emulators ( emulators, band_pass ):
+    """This function creates per band emulators from the full-spectrum
+    emulator. Should be faster in many cases"""
+    
+    n_bands = band_pass.shape[0]
+    x_train_pband = [ emulators.X_train[:,band_pass[i,:]].mean(axis=1) \
+        for i in xrange( n_bands ) ]
+    x_train_pband = np.array ( x_train_pband )
+    emulators = []
+    for i in xrange( n_bands ):
+        gp = GaussianProcess ( emulators.y_train[:75]*1, \
+                x_train_pband[i,:75] )
+        gp.learn_hyperparameters ( n_tries=3 )
+        emulators.append ( gp )
+    return emulators
 
 def get_problem_size ( x_dict, state_config ):
     """This function reports
@@ -113,7 +181,6 @@ def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
 
     
     """
-    import scipy.ndimage.interpolation
     
     xa = downsample ( x, factor[0], factor[1] )
     
