@@ -191,3 +191,23 @@ def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
     j_obs = np.where ( qa == 1, 0.5*(xa - obs)**2/sigma_obs**2, 0 )
     j_obs = j_obs.sum()
     return ( j_obs, der_j_obs )
+
+
+
+#####angles = [ [15, 15, 0] ]
+####vza = np.arange ( 8.5, 67.5, 7) # MODIS LUT is every 15 degs
+####sza = np.arange ( 8.5, 70, 7 ) # MODIS LUT is 22.5->70 every 15 degs
+####raa = np.array ( [-22, -55, -85, -115, -145, -180., \
+    ####22, 55, 85, 115, 145, 180.] ) 
+####angles = [[s,z,0.] for ( s,z) in itertools.product ( sza, vza) ]
+####for i,(s,v,r) in enumerate(angles):     
+    ####fname = "%02d_sza_%02d_vza_000_raa" % (s,v)
+    ####if os.path.exists ( fname + ".npz"):
+        ####emulators = {}
+        ####emulators[(v,s)]= MultivariateEmulator ( dump=fname + ".npz" )
+        
+    ####else:
+        ####emulators, samples, validate = create_emulators ( \
+                ####state, [""], angles=angles )   
+        ####emulators[i].dump_emulator(fname + ".npz")
+        ####emulators[(v,s)]= MultivariateEmulator ( dump=fname+".npz" )
