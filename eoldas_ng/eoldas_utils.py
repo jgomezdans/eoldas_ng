@@ -20,6 +20,41 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
+def gp_obs_mismatch ( gps, x_params, observations, band_unc ):
+    """Model observation mismatch cost & derivatives
+    This is a helper function to calculate the observation model mismatch
+    for a single multispectral observation (with associated uncertainty) using
+    Gaussian Process emulators fitted **per band** for speed.
+
+    Parameters
+    ----------
+    gps: list
+        A list of ``gp_emulator`` objects.
+    x_params: array
+        The parameter array. It should be useable with gps[i].predict() method
+    observations: array
+        The array of observations (len(observations) == len(gps))
+    band_unc: array
+        Per band uncertainties (len(band_unc) == len(gps))
+
+    """
+    n_bands = len ( gps ) # number of bands
+    for band in xrange ( n_bands ):
+        # Run the emulator forward. Doing it for all pixels, or only for
+        # the unmasked ones
+        # Also, need to work out whether the size of the state is 
+        # different to that of the observations (ie integrate over coarse res data)
+        fwd_model, emu_err, partial_derv = \
+            gps[band].predict ( np.atleast_2d ( x_params ) )
+        # Now calculate the cost increase due to this band...
+        cost += np.sum(0.5*( fwd_model - observations[band] )**2/band_unc[band]**2)
+        # And update the partial derivatives
+        the_derivatives[:] += (partial_derv * \
+            (( fwd_model[:] - \
+            observations[band] ) \
+            /band_unc[band]**2)).T
+    return cost, the_derivatives
+
 def create_inverse_emulators ( original_emulator, band_pass, state_config ):
     """
     This function takes a multivariable output trained emulator
