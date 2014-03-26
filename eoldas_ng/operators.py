@@ -539,19 +539,22 @@ class ObservationOperatorTimeSeriesGP ( object ):
             if self.mask[itime, 0] == 0:
                 # No obs here
                 continue
-            # tag here is needed to look for the emulator for this geometry
+
             # TODO Get a method to fish out the "tag"
-            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-            the_emu = self.emulators[ tag ]
-            if self.per_band:
-                this_cost, this_der = gp_obs_mismatch ( the_emu, \
-                    x_params[:, itime], self.observations[:, itime], \
-                    self.bu )
-            else:
-                # TODO fwd_model needs to be *VERY* generic!
-                this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
-                     self.observations[:, itime], self.bu, self.band_pass, \
-                     self.bw )
+            this_obsop, this_obs, this_extra = self.time_step ( itime )
+            #tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+            #the_emu = self.emulators[ tag ]
+            this_cost, this_der = self.calc_mismatch ( this_obsop, x_params[:, itime], \
+                    this_obs, self.bu, *this_extra )
+            ###if self.per_band:
+                ###this_cost, this_der = gp_obs_mismatch ( the_emu, \
+                    ###x_params[:, itime], self.observations[:, itime], \
+                    ###self.bu )
+            ###else:
+                #### TODO fwd_model needs to be *VERY* generic!
+                ###this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
+                     ###self.observations[:, itime], self.bu, self.band_pass, \
+                     ###self.bw )
             
             cost += this_cost
             the_derivatives[ :, itime] = this_der
@@ -568,6 +571,19 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 j += n_elems
         
         return cost, der_cost
+    
+    def time_step ( self, itime ):
+        """Returns relevant information on the observations for a particular time step.
+        """
+        tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+        this_obs = self.observations[:, itime]
+        return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
+    
+    def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
+        
+        this_cost, this_der = fwd_model ( gp, x, obs, bu, band_pass, bw )
+        return this_cost, this_der
+    
     
     def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-12 ):
         """Numerical approximation to the Hessian. This approximation is quite

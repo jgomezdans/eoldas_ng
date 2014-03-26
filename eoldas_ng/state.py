@@ -254,8 +254,12 @@ class State ( object ):
         try:
             lu_obj = sp.linalg.splu( a_sps )
         except RuntimeError:
-            a_sps = a_sps + sp.lil_matrix ( 1e-6*np.eye(a_sps.shape[0] ))
-            lu_obj = sp.linalg.splu( a_sps )
+            a_sps = a_sps + sp.lil_matrix ( 1e-5*np.eye(a_sps.shape[0] ))
+            try:
+                lu_obj = sp.linalg.splu( a_sps )
+            except RuntimeError:
+                a_sps = sp.lil_matrix ( 1e-5*np.eye(a_sps.shape[0] ))
+                lu_obj = sp.linalg.splu( a_sps )
         post_cov = lu_obj.solve( np.eye(x.size) )
         #post_cov = np.linalg.inv ( the_hessian )
         post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
