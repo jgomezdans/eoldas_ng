@@ -15,6 +15,7 @@ import numpy as np
 import scipy.optimize
 from collections import OrderedDict
 
+from eoldas_utils import *
 
 FIXED = 1
 CONSTANT = 2
@@ -140,7 +141,7 @@ class Prior ( object ):
         return cost, der_cost
     
 
-    def der_der_cost ( self, x, state_config, state ):
+    def der_der_cost ( self, x_dict, state_config, state ):
         """ The Hessian is just the inverse prior covariance matrix.
         However, we require the extra parameters for consistency, and
         to work out the positioning of the Hessian elements. The returned
@@ -245,7 +246,7 @@ class TemporalSmoother ( object ):
                     cost = cost + \
                         0.5*self.gamma[isel_param]*(np.sum(np.array(self.D1.dot(xa.T))**2))
                     der_cost[i:(i+self.n_elems)] = np.array( \
-                        self. gamma[isel_param]*np.dot((self.D1).T, \
+                        self.gamma[isel_param]*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
                 i += self.n_elems
                 isel_param += 1
@@ -431,13 +432,13 @@ class ObservationOperator ( object ):
                 
         return cost, der_cost
     
-    def der_der_cost ( self, x, state_config ):
+    def der_der_cost ( self, x_dict, state_config, state ):
         # Hessian is just C_{obs}^{-1}?
-        hess_obs = np.zeros( x.size )
-        hess_obs[ self.mask ] = (1./self.sigma_obs**2)
-        hess_obs = np.diag( hess_obs )
-        #TODO should be sparse!!!
-        return hess_obs
+        n, n_elems = get_problem_size ( x_dict, state_config )
+        h1 = np.zeros ( n )
+        h1[ self.mask ] = (1./self.sigma_obs**2)
+        return scipy.sparse.lil_matrix (  np.diag( h1 ) )
+        
 
         
 class ObservationOperatorTimeSeriesGP ( object ):
@@ -535,7 +536,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, 0]
+                der_cost[j] = the_derivatives[i, self.mask[:,0] != 0].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = len ( x_dict[param] )

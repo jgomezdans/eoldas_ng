@@ -11,7 +11,9 @@ __email__   = "j.gomez-dans@ucl.ac.uk"
 from collections import OrderedDict
 import numpy as np
 import scipy.optimize
+import scipy.sparse as sp
 
+from eoldas_utils import *
 FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
@@ -201,7 +203,6 @@ class State ( object ):
     def optimize ( self, x0=None, bounds=None ):
         
         """Optimise the state starting from a first guess `x0`"""
-        
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif type( x0 ) is str:
@@ -235,18 +236,26 @@ class State ( object ):
     
     def do_uncertainty ( self, x ):
         
-        the_hessian = scipy.sparse.lil_matrix ( ( x.size, x.size ) )
+        the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
         for op_name, the_op in self.operators.iteritems():
             try:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, self )
             except:
                 this_hessian = the_op.der_der_cost ( x_dict, self.state_config, self )
-            print "Saving Hessian to %s.npz" % op_name
-            np.savez ( "%s.npz" % op_name, hessian=this_hessian )
+            if self.verbose:
+                print "Saving Hessian to %s.npz" % op_name
+            if sp.issparse ( this_hessian ):
+                np.savez ( "%s.npz" % op_name, hessian=this_hessian.todense() )
+            else:
+                np.savez ( "%s.npz" % op_name, hessian=this_hessian )
             the_hessian = the_hessian + this_hessian
-        a_sps = scipy.sparse.csc_matrix( the_hessian )
-        lu_obj = scipy.sparse.linalg.splu( a_sps )
+        a_sps = sp.csc_matrix( the_hessian )
+        try:
+            lu_obj = sp.linalg.splu( a_sps )
+        except RuntimeError:
+            a_sps = a_sps + sp.lil_matrix ( 1e-6*np.eye(a_sps.shape[0] ))
+            lu_obj = sp.linalg.splu( a_sps )
         post_cov = lu_obj.solve( np.eye(x.size) )
         #post_cov = np.linalg.inv ( the_hessian )
         post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()

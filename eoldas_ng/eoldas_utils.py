@@ -16,6 +16,10 @@ import scipy.ndimage.interpolation
 
 from gp_emulator import GaussianProcess
 
+FIXED = 1
+CONSTANT = 2
+VARIABLE = 3
+
 def create_inverse_emulators ( original_emulator, band_pass, state_config ):
     """
     This function takes a multivariable output trained emulator
