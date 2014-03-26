@@ -39,6 +39,8 @@ def gp_obs_mismatch ( gps, x_params, observations, band_unc ):
 
     """
     n_bands = len ( gps ) # number of bands
+    cost = 0
+    the_derivatives = np.zeros ( n_bands )
     for band in xrange ( n_bands ):
         # Run the emulator forward. Doing it for all pixels, or only for
         # the unmasked ones
