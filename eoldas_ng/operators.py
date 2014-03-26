@@ -450,7 +450,8 @@ class ObservationOperator ( object ):
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
+            per_band=True, band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -467,10 +468,22 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
-        self.emulators = emulators
+
+        self.original_emulators = emulators # Keep around for quick inverse emulators
+        if per_band:
+            if band_pass is None:
+                raise IOError, \
+                    "You want fast emulators, need to provide bandpass fncs!"
+            self.emulators = perband_emulators ( emulators, band_pass )
+            self.per_band = True
+        
+        else:
+            self.per_band = False
+            self.emulators = emulators
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+
         
     
     def der_cost ( self, x_dict, state_config ):
@@ -530,11 +543,15 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # TODO Get a method to fish out the "tag"
             tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
             the_emu = self.emulators[ tag ]
-            
-            # TODO fwd_model needs to be *VERY* generic!
-            this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
-                 self.observations[:, itime], self.bu, self.band_pass, \
-                 self.bw )
+            if self.per_band:
+                this_cost, this_der = gp_obs_mismatch ( the_emu, \
+                    x_params[:, itime], self.observations[:, itime], \
+                    self.bu )
+            else:
+                # TODO fwd_model needs to be *VERY* generic!
+                this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
+                     self.observations[:, itime], self.bu, self.band_pass, \
+                     self.bw )
             
             cost += this_cost
             the_derivatives[ :, itime] = this_der
