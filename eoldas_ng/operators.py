@@ -451,7 +451,7 @@ class ObservationOperator ( object ):
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
     def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
-            per_band=True, band_pass=None, bw=None ):
+            per_band=False, band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -569,7 +569,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         
         return cost, der_cost
     
-    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-12 ):
         """Numerical approximation to the Hessian. This approximation is quite
         simple, and is based on a finite differences of the individual terms of 
         the cost function. Note that this method shares a lot with the `der_cost`

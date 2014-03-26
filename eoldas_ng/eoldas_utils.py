@@ -153,6 +153,8 @@ def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
     
     """
     f, g = gp.predict ( np.atleast_2d( x ) )
+    g = g.squeeze()
+    f = f.squeeze()
     cost = 0
     der_cost = []
     
