@@ -11,9 +11,11 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+from collections import OrderedDict
+
 import numpy as np
 import scipy.optimize
-from collections import OrderedDict
+import scipy.sparse as sp
 
 from eoldas_utils import *
 
@@ -147,6 +149,8 @@ class Prior ( object ):
         to work out the positioning of the Hessian elements. The returned
         matrix is LIL-sparse.
         
+        In the case the user has provided a sparse prior inverse matrix,
+        we can just return this.
                 
         Parameters
         -----------
@@ -160,6 +164,9 @@ class Prior ( object ):
         Hess: sparse matrix
             The hessian for the cost function at `x`
         """
+        if sp.issparse ( self.inv_cov ):
+            # We already have it!!!
+            return self.inv_cov
         
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.empty ( ( n, n ) )
@@ -181,7 +188,7 @@ class Prior ( object ):
                 i += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
-        return scipy.sparse.lil_matrix ( h1 )
+        return sp.lil_matrix ( h1 )
         
     
     
@@ -302,7 +309,7 @@ class TemporalSmoother ( object ):
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
-        return scipy.sparse.lil_matrix ( h  )
+        return sp.lil_matrix ( h  )
 
 class SpatialSmoother ( object ):
     """MRF prior"""
@@ -437,7 +444,7 @@ class ObservationOperator ( object ):
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.zeros ( n )
         h1[ self.mask ] = (1./self.sigma_obs**2)
-        return scipy.sparse.lil_matrix (  np.diag( h1 ) )
+        return sp.lil_matrix (  np.diag( h1 ) )
         
 
         
@@ -647,7 +654,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                     h[iloc, jloc] = hs[j]                
                 xs[i] = xxs
 
-        return scipy.sparse.lil_matrix ( h.T )
+        return sp.lil_matrix ( h.T )
         
 
 
