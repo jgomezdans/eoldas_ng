@@ -11,9 +11,11 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+from collections import OrderedDict
+
 import numpy as np
 import scipy.optimize
-from collections import OrderedDict
+import scipy.sparse as sp
 
 from eoldas_utils import *
 
@@ -124,6 +126,7 @@ class Prior ( object ):
                             self.inv_cov[param]
                 i += 1                
             elif typo == VARIABLE:
+                
                 if self.inv_cov[param].size == 1:
                     # Single parameter for all sites/locations etc
                     # This should really be in the __init__ method!
@@ -147,6 +150,8 @@ class Prior ( object ):
         to work out the positioning of the Hessian elements. The returned
         matrix is LIL-sparse.
         
+        In the case the user has provided a sparse prior inverse matrix,
+        we can just return this.
                 
         Parameters
         -----------
@@ -160,6 +165,9 @@ class Prior ( object ):
         Hess: sparse matrix
             The hessian for the cost function at `x`
         """
+        if sp.issparse ( self.inv_cov ):
+            # We already have it!!!
+            return self.inv_cov
         
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.empty ( ( n, n ) )
@@ -181,7 +189,7 @@ class Prior ( object ):
                 i += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
-        return scipy.sparse.lil_matrix ( h1 )
+        return sp.lil_matrix ( h1 )
         
     
     
@@ -248,8 +256,9 @@ class TemporalSmoother ( object ):
                     der_cost[i:(i+self.n_elems)] = np.array( \
                         self.gamma[isel_param]*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
+                    isel_param += 1
                 i += self.n_elems
-                isel_param += 1
+                
                 
         return cost, der_cost
     
@@ -302,7 +311,7 @@ class TemporalSmoother ( object ):
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
-        return scipy.sparse.lil_matrix ( h  )
+        return sp.lil_matrix ( h  )
 
 class SpatialSmoother ( object ):
     """MRF prior"""
@@ -437,13 +446,14 @@ class ObservationOperator ( object ):
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.zeros ( n )
         h1[ self.mask ] = (1./self.sigma_obs**2)
-        return scipy.sparse.lil_matrix (  np.diag( h1 ) )
+        return sp.lil_matrix (  np.diag( h1 ) )
         
 
         
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
+            per_band=False, band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -460,10 +470,22 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
-        self.emulators = emulators
+
+        self.original_emulators = emulators # Keep around for quick inverse emulators
+        if per_band:
+            if band_pass is None:
+                raise IOError, \
+                    "You want fast emulators, need to provide bandpass fncs!"
+            self.emulators = perband_emulators ( emulators, band_pass )
+            self.per_band = True
+        
+        else:
+            self.per_band = False
+            self.emulators = emulators
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+
         
     
     def der_cost ( self, x_dict, state_config ):
@@ -497,6 +519,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 self.nt ) )
         j = 0
         ii = 0
+        
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nt ) )
         for param, typo in state_config.iteritems():
@@ -519,15 +542,22 @@ class ObservationOperatorTimeSeriesGP ( object ):
             if self.mask[itime, 0] == 0:
                 # No obs here
                 continue
-            # tag here is needed to look for the emulator for this geometry
+
             # TODO Get a method to fish out the "tag"
-            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-            the_emu = self.emulators[ tag ]
-            
-            # TODO fwd_model needs to be *VERY* generic!
-            this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
-                 self.observations[:, itime], self.bu, self.band_pass, \
-                 self.bw )
+            this_obsop, this_obs, this_extra = self.time_step ( itime )
+            #tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+            #the_emu = self.emulators[ tag ]
+            this_cost, this_der = self.calc_mismatch ( this_obsop, x_params[:, itime], \
+                    this_obs, self.bu, *this_extra )
+            ###if self.per_band:
+                ###this_cost, this_der = gp_obs_mismatch ( the_emu, \
+                    ###x_params[:, itime], self.observations[:, itime], \
+                    ###self.bu )
+            ###else:
+                #### TODO fwd_model needs to be *VERY* generic!
+                ###this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
+                     ###self.observations[:, itime], self.bu, self.band_pass, \
+                     ###self.bw )
             
             cost += this_cost
             the_derivatives[ :, itime] = this_der
@@ -539,13 +569,27 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 der_cost[j] = the_derivatives[i, self.mask[:,0] != 0].sum()
                 j += 1
             elif typo == VARIABLE:
-                n_elems = len ( x_dict[param] )
+                n_elems = x_dict[param].size
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
                 j += n_elems
         
         return cost, der_cost
     
-    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-8 ):
+    def time_step ( self, itime ):
+        """Returns relevant information on the observations for a particular time step.
+        """
+        tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
+        this_obs = self.observations[:, itime]
+        return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
+    
+    def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
+        
+        this_cost, this_der = fwd_model ( gp, x, obs, bu, band_pass, bw )
+        print this_cost, x[1], x[4], x[6]
+        return this_cost, this_der
+    
+    
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-12 ):
         """Numerical approximation to the Hessian. This approximation is quite
         simple, and is based on a finite differences of the individual terms of 
         the cost function. Note that this method shares a lot with the `der_cost`
@@ -647,7 +691,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                     h[iloc, jloc] = hs[j]                
                 xs[i] = xxs
 
-        return scipy.sparse.lil_matrix ( h.T )
+        return sp.lil_matrix ( h.T )
         
 
 
