@@ -370,7 +370,7 @@ class SpatialSmoother ( object ):
                 
                 
         return cost, der_cost
-    def der_der_cost ( x, state_config ):
+    def der_der_cost ( self, x, state_config, state ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
         # need to have all mxs in sparse format, otherwise, they
@@ -453,7 +453,7 @@ class ObservationOperator ( object ):
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
     def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
-            per_band=False, band_pass=None, bw=None ):
+            band_pass=None, bw=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -470,18 +470,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.mask = mask
         assert ( self.nt ) == mask.shape[0]
         self.state_grid = state_grid
-
-        self.original_emulators = emulators # Keep around for quick inverse emulators
-        if per_band:
-            if band_pass is None:
-                raise IOError, \
-                    "You want fast emulators, need to provide bandpass fncs!"
-            self.emulators = perband_emulators ( emulators, band_pass )
-            self.per_band = True
-        
-        else:
-            self.per_band = False
-            self.emulators = emulators
+        self.emulators = emulators
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
@@ -585,11 +574,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
         
         this_cost, this_der = fwd_model ( gp, x, obs, bu, band_pass, bw )
-        print this_cost, x[1], x[4], x[6]
         return this_cost, this_der
     
     
-    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-12 ):
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-5 ):
         """Numerical approximation to the Hessian. This approximation is quite
         simple, and is based on a finite differences of the individual terms of 
         the cost function. Note that this method shares a lot with the `der_cost`

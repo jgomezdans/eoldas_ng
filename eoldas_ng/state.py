@@ -200,7 +200,7 @@ class State ( object ):
                     for j in xrange ( self.n_elems )]
         return the_bounds
     
-    def optimize ( self, x0=None, bounds=None ):
+    def optimize ( self, x0=None, bounds=None, do_unc=False ):
         
         """Optimise the state starting from a first guess `x0`"""
         if type(x0) == type ( {} ):
@@ -230,7 +230,8 @@ class State ( object ):
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r[0], do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r[0], do_invtransform=False )
-        retval_dict.update ( self.do_uncertainty ( r[0] ) )
+        if do_unc:
+            retval_dict.update ( self.do_uncertainty ( r[0] ) )
         
         return retval_dict
     
@@ -284,12 +285,15 @@ class State ( object ):
          
          aggr_cost = 0
          aggr_der_cost = x*0.0
-         
+         self.cost_components = {}
          for op_name, the_op in self.operators.iteritems():
              
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
+             self.cost_components[op_name] = der_cost
              if self.verbose:
                  print "\t%s %f" % ( op_name, cost )
+         self.the_cost = aggr_cost
+         
          return aggr_cost, aggr_der_cost
