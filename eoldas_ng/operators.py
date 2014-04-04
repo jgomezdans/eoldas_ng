@@ -645,46 +645,58 @@ class ObservationOperatorTimeSeriesGP ( object ):
         n_const = np.sum ( param_pattern == CONSTANT )
         n_var = np.sum ( param_pattern == VARIABLE )
         n_grid = self.nt # don't ask...
-        for itime, tstep in enumerate ( self.state_grid ):
-            if self.mask[itime, 0] == 0:
-                # No obs here
+        istart_doy = self.state_grid[0]
+        for itime, tstep in enumerate ( self.state_grid[1:] ):
+            # Select all observations between istart_doy and tstep
+            sel_obs = np.where ( np.logical_and ( self.mask[0,:] > istart_doy, \
+                self.mask[0,:] <= tstep ), True, False )
+            if sel_obs.sum() == 0:
+                # We have no observations, go to next period!
+                istart_doy = tstep # Update istart_doy
                 continue
-            # tag here is needed to look for the emulator for this geometry
-            tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-            the_emu = self.emulators[ tag ]
-            xs = x_params[:, itime]*1
-            dummy, df_0 = fwd_model ( the_emu, xs, \
-                     self.observations[:, itime], self.bu, self.band_pass, \
-                     self.bw )
-            iloc = 0
-            iiloc = 0
-            for i,fin_diff in enumerate(param_pattern):
-                if fin_diff == 1: # FIXED
-                    continue                    
-                xxs = xs[i]*1
-                xs[i] += epsilon
-                dummy, df_1= fwd_model ( the_emu, xs, \
-                     self.observations[:, itime], self.bu, self.band_pass, \
-                     self.bw )
-                # Calculate d2f/d2x
-                hs =  (df_1 - df_0)/epsilon
-                if fin_diff == 2: # CONSTANT
-                    iloc += 1
-                elif fin_diff == 3: # VARIABLE
-                    iloc = n_const + iiloc*n_grid + itime
-                    iiloc += 1
-                jloc = 0
-                jjloc = 0
-                for j,jfin_diff in enumerate(param_pattern):
-                    if jfin_diff == FIXED: 
-                        continue
-                    if jfin_diff == CONSTANT: 
-                        jloc += 1
-                    elif jfin_diff == VARIABLE: 
-                        jloc = n_const + jjloc*n_grid + itime
-                        jjloc += 1
-                    h[iloc, jloc] = hs[j]                
-                xs[i] = xxs
+            # Now, test the QA flag, field 2 of the mask...
+            sel_obs = np.where ( np.logical_and ( self.mask[1, :], sel_obs ), \
+                True, False )
+            if sel_obs.sum() == 0:
+                # We have no observations, go to next period!
+                istart_doy = tstep # Update istart_doy
+                continue
+            # In this bit, we need a loop to go over this period's observations
+            # And add the cost/der_cost contribution from each.
+            for this_obs_loc in sel_obs.nonzero()[0]:
+                
+                this_obsop, this_obs, this_extra = self.time_step ( \
+                    this_obs_loc )
+                xs = x_params[:, itime]*1
+                dummy, df_0 = self.calc_mismatch ( this_obsop, \
+                    xs, this_obs, self.bu, *this_extra )
+                iloc = 0
+                iiloc = 0
+                for i,fin_diff in enumerate(param_pattern):
+                    if fin_diff == 1: # FIXED
+                        continue                    
+                    xxs = xs[i]*1
+                    xs[i] += epsilon
+                    dummy, df_1 = self.calc_mismatch ( this_obsop, \
+                        xs, this_obs, self.bu, *this_extra )                    # Calculate d2f/d2x
+                    hs =  (df_1 - df_0)/epsilon
+                    if fin_diff == 2: # CONSTANT
+                        iloc += 1
+                    elif fin_diff == 3: # VARIABLE
+                        iloc = n_const + iiloc*n_grid + itime
+                        iiloc += 1
+                    jloc = 0
+                    jjloc = 0
+                    for j,jfin_diff in enumerate(param_pattern):
+                        if jfin_diff == FIXED: 
+                            continue
+                        if jfin_diff == CONSTANT: 
+                            jloc += 1
+                        elif jfin_diff == VARIABLE: 
+                            jloc = n_const + jjloc*n_grid + itime
+                            jjloc += 1
+                        h[iloc, jloc] += hs[j]                
+                    xs[i] = xxs
 
         return sp.lil_matrix ( h.T )
         
