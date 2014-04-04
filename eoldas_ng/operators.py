@@ -570,11 +570,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
         
         return cost, der_cost
     
-    def time_step ( self, itime ):
+    def time_step ( self, this_loc ):
         """Returns relevant information on the observations for a particular time step.
         """
-        tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-        this_obs = self.observations[:, itime]
+        tag = np.round(mask.astype (np.int)/5.)*5
+        tag = tuple ( tag.tolist() )
+        this_obs = self.observations[ this_loc, :]
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
     
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
