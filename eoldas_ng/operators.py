@@ -530,14 +530,14 @@ class ObservationOperatorTimeSeriesGP ( object ):
         istart_doy = self.state_grid[0]
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
-            sel_obs = np.where ( np.logical_and ( self.mask[0,:] > istart_doy, \
-                self.mask[0,:] <= tstep ), True, False )
+            sel_obs = np.where ( np.logical_and ( self.mask[:, 0] > istart_doy, \
+                self.mask[:, 0] <= tstep ), True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
                 istart_doy = tstep # Update istart_doy
                 continue
             # Now, test the QA flag, field 2 of the mask...
-            sel_obs = np.where ( np.logical_and ( self.mask[1, :], sel_obs ), \
+            sel_obs = np.where ( np.logical_and ( self.mask[:, 1], sel_obs ), \
                 True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
@@ -546,7 +546,6 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # In this bit, we need a loop to go over this period's observations
             # And add the cost/der_cost contribution from each.
             for this_obs_loc in sel_obs.nonzero()[0]:
-                
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
                 this_cost, this_der = self.calc_mismatch ( this_obsop, \
@@ -558,11 +557,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # Advance istart_doy to the end of this period
             istart_doy = tstep
             
-            
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, self.mask[:,0] != 0].sum()
+                der_cost[j] = the_derivatives[i, self.mask[:,1] != 0].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
@@ -648,14 +646,14 @@ class ObservationOperatorTimeSeriesGP ( object ):
         istart_doy = self.state_grid[0]
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
-            sel_obs = np.where ( np.logical_and ( self.mask[0,:] > istart_doy, \
-                self.mask[0,:] <= tstep ), True, False )
+            sel_obs = np.where ( np.logical_and ( self.mask[:, 0] > istart_doy, \
+                self.mask[:, 0] <= tstep ), True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
                 istart_doy = tstep # Update istart_doy
                 continue
             # Now, test the QA flag, field 2 of the mask...
-            sel_obs = np.where ( np.logical_and ( self.mask[1, :], sel_obs ), \
+            sel_obs = np.where ( np.logical_and ( self.mask[:, 1], sel_obs ), \
                 True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
