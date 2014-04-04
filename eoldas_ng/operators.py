@@ -526,8 +526,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 x_params[ j, : ] = x_dict[param]
             j += 1
         
-        istart_doy = 0
-        for itime, tstep in enumerate ( self.state_grid ):
+        istart_doy = self.state_grid[0]
+        for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
             sel_obs = np.where ( np.logical_and ( mask[0,:] > istart_doy, \
                 mask[0,:] <= tstep ), True, False )
