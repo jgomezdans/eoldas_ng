@@ -470,6 +470,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.mask = mask
         assert ( self.n_obs ) == mask.shape[0]
         self.state_grid = state_grid
+        self.nt = self.state_grid.shape[0]
         self.emulators = emulators
         self.bu = bu
         self.band_pass = band_pass
@@ -553,7 +554,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                     this_obs, self.bu, *this_extra )
             
                 cost += this_cost
-                the_derivatives[ :, itime] = this_der
+                the_derivatives[ :, itime] += this_der
             # Advance istart_doy to the end of this period
             istart_doy = tstep
             
@@ -573,13 +574,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
     def time_step ( self, this_loc ):
         """Returns relevant information on the observations for a particular time step.
         """
-        tag = np.round( self.mask.astype (np.int)/5.)*5
-        tag = tuple ( tag.tolist() )
+        tag = np.round( self.mask[ this_loc, 2:].astype (np.int)/5.)*5
+        tag = tuple ( (tag[:2].astype(np.int)).tolist() )
         this_obs = self.observations[ this_loc, :]
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
     
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
-        
         this_cost, this_der = fwd_model ( gp, x, obs, bu, band_pass, bw )
         return this_cost, this_der
     
