@@ -464,11 +464,11 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_bands, self.nt = self.observations.shape
+            self.n_obs, self.n_bands = self.observations.shape
         except:
-            raise ValueError, "Typically, obs should be n_bands * nt"
+            raise ValueError, "Typically, obs should be (n_obs, n_bands)"
         self.mask = mask
-        assert ( self.nt ) == mask.shape[0]
+        assert ( self.n_obs ) == mask.shape[0]
         self.state_grid = state_grid
         self.emulators = emulators
         self.bu = bu
@@ -529,15 +529,15 @@ class ObservationOperatorTimeSeriesGP ( object ):
         istart_doy = self.state_grid[0]
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
-            sel_obs = np.where ( np.logical_and ( mask[0,:] > istart_doy, \
-                mask[0,:] <= tstep ), True, False )
+            sel_obs = np.where ( np.logical_and ( self.mask[0,:] > istart_doy, \
+                self.mask[0,:] <= tstep ), True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
                 istart_doy = tstep # Update istart_doy
                 continue
             # Now, test the QA flag, field 2 of the mask...
-            sel_obs = np.where ( np.logical_and ( mask[1, :], sel_obs ), True, \
-                False )
+            sel_obs = np.where ( np.logical_and ( self.mask[1, :], sel_obs ), \
+                True, False )
             if sel_obs.sum() == 0:
                 # We have no observations, go to next period!
                 istart_doy = tstep # Update istart_doy
@@ -573,7 +573,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
     def time_step ( self, this_loc ):
         """Returns relevant information on the observations for a particular time step.
         """
-        tag = np.round(mask.astype (np.int)/5.)*5
+        tag = np.round( self.mask.astype (np.int)/5.)*5
         tag = tuple ( tag.tolist() )
         this_obs = self.observations[ this_loc, :]
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
