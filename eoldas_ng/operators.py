@@ -32,8 +32,8 @@ class AttributeDict(dict):
 
 
          
-##################################################################################        
-##################################################################################        
+################################################################################        
+################################################################################        
 
 class Prior ( object ):
     """A gaussian prior class"""
@@ -526,30 +526,36 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 x_params[ j, : ] = x_dict[param]
             j += 1
         
-
+        istart_doy = 0
         for itime, tstep in enumerate ( self.state_grid ):
-            if self.mask[itime, 0] == 0:
-                # No obs here
+            # Select all observations between istart_doy and tstep
+            sel_obs = np.where ( np.logical_and ( mask[0,:] > istart_doy, \
+                mask[0,:] <= tstep ), True, False )
+            if sel_obs.sum() == 0:
+                # We have no observations, go to next period!
+                istart_doy = tstep # Update istart_doy
                 continue
-
-            # TODO Get a method to fish out the "tag"
-            this_obsop, this_obs, this_extra = self.time_step ( itime )
-            #tag = tuple((5*(self.mask[itime, 1:3].astype(np.int)/5)).tolist())
-            #the_emu = self.emulators[ tag ]
-            this_cost, this_der = self.calc_mismatch ( this_obsop, x_params[:, itime], \
+            # Now, test the QA flag, field 2 of the mask...
+            sel_obs = np.where ( np.logical_and ( mask[1, :], sel_obs ), True, \
+                False )
+            if sel_obs.sum() == 0:
+                # We have no observations, go to next period!
+                istart_doy = tstep # Update istart_doy
+                continue
+            # In this bit, we need a loop to go over this period's observations
+            # And add the cost/der_cost contribution from each.
+            for this_obs_loc in sel_obs.nonzero()[0]:
+                
+                this_obsop, this_obs, this_extra = self.time_step ( \
+                    this_obs_loc )
+                this_cost, this_der = self.calc_mismatch ( this_obsop, \
+                    x_params[:, itime], \
                     this_obs, self.bu, *this_extra )
-            ###if self.per_band:
-                ###this_cost, this_der = gp_obs_mismatch ( the_emu, \
-                    ###x_params[:, itime], self.observations[:, itime], \
-                    ###self.bu )
-            ###else:
-                #### TODO fwd_model needs to be *VERY* generic!
-                ###this_cost, this_der = fwd_model ( the_emu, x_params[:, itime], \
-                     ###self.observations[:, itime], self.bu, self.band_pass, \
-                     ###self.bw )
             
-            cost += this_cost
-            the_derivatives[ :, itime] = this_der
+                cost += this_cost
+                the_derivatives[ :, itime] = this_der
+            # Advance istart_doy to the end of this period
+            istart_doy = tstep
             
             
         j = 0
