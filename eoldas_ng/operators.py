@@ -144,7 +144,7 @@ class Prior ( object ):
         return cost, der_cost
     
 
-    def der_der_cost ( self, x_dict, state_config, state ):
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=None ):
         """ The Hessian is just the inverse prior covariance matrix.
         However, we require the extra parameters for consistency, and
         to work out the positioning of the Hessian elements. The returned
@@ -262,7 +262,7 @@ class TemporalSmoother ( object ):
                 
         return cost, der_cost
     
-    def der_der_cost ( self, x, state_config, state ):
+    def der_der_cost ( self, x, state_config, state, epsilon=None ):
         """ The Hessian for this cost function is determined analytically, but
         we need some additional parameters for consistency, and
         to work out the positioning of the Hessian elements. The returned
@@ -370,7 +370,7 @@ class SpatialSmoother ( object ):
                 
                 
         return cost, der_cost
-    def der_der_cost ( self, x, state_config, state ):
+    def der_der_cost ( self, x, state_config, state, epsilon=None ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
         # need to have all mxs in sparse format, otherwise, they
@@ -441,7 +441,7 @@ class ObservationOperator ( object ):
                 
         return cost, der_cost
     
-    def der_der_cost ( self, x_dict, state_config, state ):
+    def der_der_cost ( self, x_dict, state_config, state, epsilon=None ):
         # Hessian is just C_{obs}^{-1}?
         n, n_elems = get_problem_size ( x_dict, state_config )
         h1 = np.zeros ( n )

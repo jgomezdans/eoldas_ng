@@ -239,36 +239,36 @@ class State ( object ):
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
-        for op_name, the_op in self.operators.iteritems():
-            try:
-                this_hessian = the_op.der_der_cost ( x, self.state_config, self )
-            except:
-                this_hessian = the_op.der_der_cost ( x_dict, self.state_config, self )
-            if self.verbose:
-                print "Saving Hessian to %s.npz" % op_name
-            if sp.issparse ( this_hessian ):
-                np.savez ( "%s.npz" % op_name, hessian=this_hessian.todense() )
-            else:
-                np.savez ( "%s.npz" % op_name, hessian=this_hessian )
-            the_hessian = the_hessian + this_hessian
-        a_sps = sp.csc_matrix( the_hessian )
-        try:
-            lu_obj = sp.linalg.splu( a_sps )
-        except RuntimeError:
-            a_sps = a_sps + sp.lil_matrix ( 1e-5*np.eye(a_sps.shape[0] ))
+        for epsilon in [ 1e-8, 1e-6, 1e-10, 1e-12, ]:
+            print "Hessian with epsilon=%e" % epsilon
+            for op_name, the_op in self.operators.iteritems():
+                try:
+                    this_hessian = the_op.der_der_cost ( x, self.state_config, \
+                        self, epsilon=epsilon )
+                except:
+                    this_hessian = the_op.der_der_cost ( x_dict, \
+                        self.state_config, self, epsilon=epsilon )
+                if self.verbose:
+                    print "Saving Hessian to %s.npz" % op_name
+                if sp.issparse ( this_hessian ):
+                    np.savez ( "%s.npz" % op_name, hessian=this_hessian.todense() )
+                else:
+                    np.savez ( "%s.npz" % op_name, hessian=this_hessian )
+                the_hessian = the_hessian + this_hessian
+            a_sps = sp.csc_matrix( the_hessian )
             try:
                 lu_obj = sp.linalg.splu( a_sps )
             except RuntimeError:
-                a_sps = a_sps + sp.lil_matrix ( 1e-5*np.eye(a_sps.shape[0] ))
-                try:
-                    lu_obj = sp.linalg.splu( a_sps )
-                except RuntimeError:
-                    np.savez ( "hessian.npz", hessian=the_hessian )
-                    print "No Hessian calculated as singular! Check the Hessian on hessian.npz"
-                    return {}
-        post_cov = lu_obj.solve( np.eye(x.size) )
-        #post_cov = np.linalg.inv ( the_hessian )
-        post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
+                # Catch the exception, try a different value of
+                # epsilon
+                continue
+            try:
+                post_cov = lu_obj.solve( np.eye(x.size) )
+                #post_cov = np.linalg.inv ( the_hessian )
+                post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
+            except:
+                continue
+            break
         ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
         ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
         retval = {}
