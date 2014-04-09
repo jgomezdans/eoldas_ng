@@ -104,9 +104,9 @@ def perband_emulators ( emulators, band_pass ):
     x_train_pband = np.array ( x_train_pband )
     emus = []
     for i in xrange( n_bands ):
-        gp = GaussianProcess ( emulators.y_train[:75]*1, \
-                x_train_pband[i,:75] )
-        gp.learn_hyperparameters ( n_tries=3 )
+        gp = GaussianProcess ( emulators.y_train[:]*1, \
+                x_train_pband[i,:] )
+        gp.learn_hyperparameters ( n_tries=5 )
         emus.append ( gp )
     return emus
 
