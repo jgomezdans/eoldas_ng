@@ -102,13 +102,13 @@ def perband_emulators ( emulators, band_pass ):
     x_train_pband = [ emulators.X_train[:,band_pass[i,:]].mean(axis=1) \
         for i in xrange( n_bands ) ]
     x_train_pband = np.array ( x_train_pband )
-    emulators = []
+    emus = []
     for i in xrange( n_bands ):
         gp = GaussianProcess ( emulators.y_train[:75]*1, \
                 x_train_pband[i,:75] )
         gp.learn_hyperparameters ( n_tries=3 )
-        emulators.append ( gp )
-    return emulators
+        emus.append ( gp )
+    return emus
 
 def get_problem_size ( x_dict, state_config ):
     """This function reports
