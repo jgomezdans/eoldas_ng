@@ -53,6 +53,27 @@ class Prior ( object ):
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
         
+    def pack_from_dict ( self, x_dict, state_config ):
+        """This method returns a vector from a dictionary and state configuration
+        object. The idea is to use this with the prior sparse represntation, to
+        get speed gains."""
+        
+        n_elems = self.mu.shape[0]
+        the_vector = np.zeros ( n_elems )
+        # Now, populate said vector in the right order
+        # looping over state_config *should* preserve the order
+        i = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT: # Constant value for all times
+                the_vector[i] = x_dict[param]
+                i = i+1        
+            elif typo == VARIABLE:
+                # For this particular date, the relevant parameter is at location iloc
+                the_vector[i:(i + n_elems)] =  \
+                        x_dict[param].flatten() 
+                i += n_elems
+        return the_vector 
+        
                     
     def first_guess ( self, state_config, n_elems ):
         """This method provides a simple way to initialise the optimisation: when called
