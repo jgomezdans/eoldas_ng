@@ -54,7 +54,7 @@ def two_stream_model ( x, sun_angle, structure_factor_zeta = 1., \
     #[ iso_abs_tot_vis, iso_abs_tot_nir]
     return  [ collim_alb_tot_vis, collim_alb_tot_nir ]
 
-def create_emulators ( sun_angles, x_min, x_max, n_train=250, n_validate=1000 ):
+def create_emulators ( x_min, x_max, n_train=250, n_validate=1000 ):
     """This is a helper function to create emulators from the 2stream model.
     The emulators operate on all parameters (7) and the user needs to provide
     a numer of `sun_angles`. This then allows the inversion of BHR data from e.g.
@@ -94,53 +94,42 @@ def create_emulators ( sun_angles, x_min, x_max, n_train=250, n_validate=1000 ):
         x_min
     emu_vis = {}
     emu_nir = {}
-    # We next loop over the input sun angles
-    for sun_angle in sun_angles:
-        # If we've done this sun angle before, skip it
-        if not emu_vis.has_key ( sun_angle ):
-            albedo_train = []
-            albedo_validate = []
-            # The following loop creates the validation dataset
-            for i in xrange( n_validate ):
-                [a_vis, a_nir] = two_stream_model ( x_validate[i,:], \
-                    sun_angle )
-                albedo_validate.append ( [a_vis, a_nir] )
-            # The following loop creates the training dataset
-            for i in xrange ( n_train ):
-                [a_vis, a_nir] = two_stream_model ( x_train[i,:], \
-                    sun_angle )
-                albedo_train.append ( [a_vis, a_nir] )
+    albedo_train = []
+    albedo_validate = []
+    # The following loop creates the validation dataset
+    for i in xrange( n_validate ):
+        [a_vis, a_nir] = two_stream_model ( x_validate[i,:], \
+            30. )
+        albedo_validate.append ( [a_vis, a_nir] )
+    # The following loop creates the training dataset
+    for i in xrange ( n_train ):
+        [a_vis, a_nir] = two_stream_model ( x_train[i,:], \
+            30. )
+        albedo_train.append ( [a_vis, a_nir] )
 
-            albedo_train = np.array ( albedo_train )
-            albedo_validate = np.array ( albedo_validate )
-            # The next few lines create and train the emulators
-            # GP for visible
-            gp_vis = GaussianProcess ( x_train, albedo_train[:,0])
-            theta = gp_vis.learn_hyperparameters(n_tries=4)
-            
-            # GP for NIR
-            gp_nir = GaussianProcess ( x_train, albedo_train[:,1])
-            theta = gp_nir.learn_hyperparameters(n_tries=4)
-            pred_mu, pred_var, par_dev = gp_vis.predict ( x_validate )
-            r_vis = (albedo_validate[:,0] - pred_mu)
-            pred_mu, pred_var, par_dev = gp_nir.predict ( x_validate )
-            r_nir = (albedo_validate[:,1] - pred_mu)
-            # Report some goodness of fit. Could do with more
-            # stats, but for the time being, this is enough.
-            print "Sun Angle: %g, RMSE VIS: %g, RMSE NIR: %g" % \
-                ( sun_angle, r_vis.std(), r_nir.std() )
+        albedo_train = np.array ( albedo_train )
+        albedo_validate = np.array ( albedo_validate )
+        # The next few lines create and train the emulators
+        # GP for visible
+        gp_vis = GaussianProcess ( x_train, albedo_train[:,0])
+        theta = gp_vis.learn_hyperparameters(n_tries=4)
+        
+        # GP for NIR
+        gp_nir = GaussianProcess ( x_train, albedo_train[:,1])
+        theta = gp_nir.learn_hyperparameters(n_tries=4)
+        pred_mu, pred_var, par_dev = gp_vis.predict ( x_validate )
+        r_vis = (albedo_validate[:,0] - pred_mu)
+        pred_mu, pred_var, par_dev = gp_nir.predict ( x_validate )
+        r_nir = (albedo_validate[:,1] - pred_mu)
+        # Report some goodness of fit. Could do with more
+        # stats, but for the time being, this is enough.
+        print "RMSE VIS: %g, RMSE NIR: %g" % \
+            (r_vis.std(), r_nir.std() )
             emu_vis[sun_angle] = gp_vis
             emu_nir[sun_angle] = gp_nir
-    emulators = {}
-    for sun_angle in emu_vis.iterkeys():
-        emulators[sun_angle] = [ emu_vis[sun_angle], emu_nir[sun_angle] ]
-    return emulators
-        
-def select_emulator ( emulators, mask, itime ):
 
-    sun_angle = mask[itime,1]
-    vis = emulators[sun_angle][0].predict
-    nir = emulators[sun_angle][1].predict
+    return emu_vis, emu_nir
+        
     return vis, nir
     
 class ObservationOperatorTwoStream ( object ):
