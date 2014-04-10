@@ -219,14 +219,14 @@ class State ( object ):
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
-            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=40, disp=1, \
+            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
                  factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds)
             retval = [ r[0]*1 ]
             #retval = []
             #retval.append ( x0*1.)
         else:
             retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
-                bounds=bounds, m=40, maxfun=1500, factr=1e-3, pgtol=1e-20)
+                bounds=bounds, m=100, maxfun=1500, factr=1e-3, pgtol=1e-20)
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r[0], do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r[0], do_invtransform=False )
