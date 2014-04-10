@@ -57,9 +57,8 @@ class Prior ( object ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
         get speed gains."""
-        
-        n_elems = self.mu.shape[0]
-        the_vector = np.zeros ( n_elems )
+        n, n_elems = get_problem_size ( x_dict, state_config )
+        the_vector = np.zeros ( n )
         # Now, populate said vector in the right order
         # looping over state_config *should* preserve the order
         i = 0
@@ -131,7 +130,8 @@ class Prior ( object ):
             x = self.pack_from_dict ( x_dict, state_config )
             err = sp.lil_matrix ( x - self.mu )
             cost = err.dot ( self.inv_cov ).dot ( err.T )
-            der_cost  = err.dot ( self.inv_cov ).todense().squeeze()
+            der_cost  = np.array( err.dot ( self.inv_cov ).todense()).squeeze()
+            cost = float(np.array(cost.todense()).squeeze())
             return cost, der_cost
 
         # Find out about problems size
