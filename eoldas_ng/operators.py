@@ -127,6 +127,12 @@ class Prior ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
+        if sp.issparse ( self.inv_cov ):
+            x = self.pack_from_dict ( x_dict, state_config )
+            err = sp.lil_matrix ( x - self.mu )
+            cost = err.dot ( self.inv_cov ).dot ( err.T )
+            der_cost  = err.dot ( self.inv_cov ).todense().squeeze()
+            return cost, der_cost
 
         # Find out about problems size
         n, n_elems = get_problem_size ( x_dict, state_config )
