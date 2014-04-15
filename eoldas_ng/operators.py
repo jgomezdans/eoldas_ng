@@ -16,6 +16,7 @@ from collections import OrderedDict
 import numpy as np
 import scipy.optimize
 import scipy.sparse as sp
+from scipy.ndimage.interpolation import zoom
 
 from eoldas_utils import *
 
@@ -850,7 +851,9 @@ class ObservationOperatorImageGP ( object ):
         # do a reshape
         if self.factor is not None:
             # Interpolate the mask is needed for the derivatives
-            zmask = zoom ( mask, self.factor, order=1 ).astype ( np.bool )
+            zmask = zoom ( self.mask, self.factor, order=1 ).astype ( np.bool )
+        else:
+            zmask = self.mask
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
@@ -881,7 +884,7 @@ class ObservationOperatorImageGP ( object ):
             if self.factor is not None:
                 err = zoom ( err, self.factor, order=1 )
  
-            the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
+            the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
                 (err)[:, None]).T
             ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
                 ####(( fwd_model[:] - \
