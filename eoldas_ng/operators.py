@@ -742,7 +742,6 @@ class ObservationOperatorImageGP ( object ):
          
         """
         self.state = state
-        self.nx_state, self.ny_state = state.shape
         self.observations = observations
         try:
             self.n_bands, self.nx, self.ny = self.observations.shape
@@ -751,6 +750,7 @@ class ObservationOperatorImageGP ( object ):
         self.mask = mask
         assert observations.shape[1:] == mask.shape
         self.state_grid = state_grid
+        self.nx_state, self.ny_state = state_grid.shape
         self.original_emulators = emulators # Keep around for quick inverse emulators
         if per_band:
             if band_pass is None:
