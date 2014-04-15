@@ -218,7 +218,8 @@ def fit_observations_gauss ( x, obs, sigma_obs, qa, factor=1 ):
 
     return ( j_obs, der_j_obs )
 
-  
+    
+    
 def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
     """
     A fit to the observations term. This function returns the likelihood

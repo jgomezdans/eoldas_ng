@@ -732,7 +732,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
          
 class ObservationOperatorImageGP ( object ):
     """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, band_pass=None, bw=None, per_band=False ):
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
+            factor=None, band_pass=None, bw=None, per_band=False ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -741,6 +742,7 @@ class ObservationOperatorImageGP ( object ):
          
         """
         self.state = state
+        self.nx_state, self.ny_state = state.shape
         self.observations = observations
         try:
             self.n_bands, self.nx, self.ny = self.observations.shape
@@ -763,6 +765,7 @@ class ObservationOperatorImageGP ( object ):
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+        self.factor = factor
 
 
     def first_guess ( self, state_config ):
@@ -817,10 +820,15 @@ class ObservationOperatorImageGP ( object ):
                 n_elems = x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
-        x_params = np.empty ( ( len( x_dict.keys()), self.nx * self.ny ) )
+        # `x_params` should relate to the grid state size, not observations size
+        x_params = np.empty ( ( len( x_dict.keys()), \
+            self.nx_state * self.ny_state ) )
         j = 0
         ii = 0
-        the_derivatives = np.zeros ( ( len( x_dict.keys()), self.nx * self.ny ) )
+        # `the_derivatives` should relate to the grid state size, not 
+        # observations size
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), \
+                self.nx_state * self.ny_state ) )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -838,7 +846,11 @@ class ObservationOperatorImageGP ( object ):
             j += 1
         
         # x_params is [n_params, Nx*Ny]
-        # it should be able to run the emulators directly on x_params, and then do a reshape
+        # it should be able to run the emulators directly on x_params, and then 
+        # do a reshape
+        if self.factor is not None:
+            # Interpolate the mask is needed for the derivatives
+            zmask = zoom ( mask, self.factor, order=1 ).astype ( np.bool )
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
@@ -846,17 +858,35 @@ class ObservationOperatorImageGP ( object ):
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model, emu_err, partial_derv = \
                 self.emulators[band].predict ( x_params[:, self.mask.flatten()].T )
+            if self.factor is not None:
+                # Multi-resolution! Need to integrate over the low resolution
+                # footprint using downsample in `eoldas_utils`
+                fwd_model = downsample ( fwd_model, self.factor[0], self.factor[1] )
             # Now calculate the cost increase due to this band...
-            cost += np.sum(0.5*( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2)
+            err = ( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2
+            cost += np.sum(0.5 * err )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
                 #(( fwd_model[self.mask.flatten()] - \
                 #self.observations[band, self.mask] ) \
                 #/self.bu[band]**2)[:, None]).T
+            
+            # TODO there's a mismatch of sizes. The derivatives are in state
+            # grid, not in observation grid. So we need to "zoom" the second
+            # line of the following expression (fwd_model - obs) to be the
+            # same shape as the derivatives
+            # TODO also note how we cope with data gaps here, as the mask also
+            # appears on the RHS of the expression. Do I also need a zoomed
+            # version of the mask?
+            if self.factor is not None:
+                err = zoom ( err, self.factor, order=1 )
+ 
             the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
-                (( fwd_model[:] - \
-                self.observations[band, self.mask] ) \
-                /self.bu[band]**2)[:, None]).T
+                (err)[:, None]).T
+            ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
+                ####(( fwd_model[:] - \
+                ####self.observations[band, self.mask] ) \
+                ####/self.bu[band]**2)[:, None]).T
 
         
         j = 0
