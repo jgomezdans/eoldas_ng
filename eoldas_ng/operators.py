@@ -869,8 +869,7 @@ class ObservationOperatorImageGP ( object ):
                     self.state_grid.shape), self.factor[0], \
                     self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
-            err = ( fwd_model - self.observations[band, \
-                self.mask] )
+            err = ( fwd_model - self.observations[band, self.mask] )
             cost += np.sum(0.5 * err**2/self.bu[band]**2 )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
@@ -890,7 +889,7 @@ class ObservationOperatorImageGP ( object ):
                     self.factor, order=0, mode="nearest" ).flatten()
  
             the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
-                (err)[:, None]).T
+                (err/self.bu[band]**2)[:, None]).T
             ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
                 ####(( fwd_model[:] - \
                 ####self.observations[band, self.mask] ) \
