@@ -851,7 +851,8 @@ class ObservationOperatorImageGP ( object ):
         # do a reshape
         if self.factor is not None:
             # Interpolate the mask is needed for the derivatives
-            zmask = zoom ( self.mask, self.factor, order=1 ).astype ( np.bool )
+            zmask = zoom ( self.mask, self.factor, order=0, mode="nearest" \
+                ).astype ( np.bool )
         else:
             zmask = self.mask
         for band in xrange ( self.n_bands ):
@@ -864,9 +865,12 @@ class ObservationOperatorImageGP ( object ):
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
-                fwd_model = downsample ( fwd_model, self.factor[0], self.factor[1] )
+                fwd_model = downsample ( fwd_model.reshape( \
+                    self.state_grid.shape), self.factor[0], \
+                    self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
-            err = ( fwd_model - self.observations[band, self.mask] )**2/self.bu[band]**2
+            err = ( fwd_model - self.observations[band, \
+                self.mask] )**2/self.bu[band]**2
             cost += np.sum(0.5 * err )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
@@ -882,7 +886,8 @@ class ObservationOperatorImageGP ( object ):
             # appears on the RHS of the expression. Do I also need a zoomed
             # version of the mask?
             if self.factor is not None:
-                err = zoom ( err, self.factor, order=1 )
+                err = zoom ( err.reshape((self.nx, self.ny)), \
+                    self.factor, order=0, mode="nearest" ).flatten()
  
             the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
                 (err)[:, None]).T
