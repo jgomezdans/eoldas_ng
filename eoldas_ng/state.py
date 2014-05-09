@@ -271,10 +271,15 @@ class State ( object ):
             break
         ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
         ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
+        ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
+        ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
         retval = {}
         retval['post_cov'] = post_cov
         retval['real_ci5pc'] = ci_5
         retval['real_ci95pc'] = ci_95
+        retval['real_ci25pc'] = ci_25
+        retval['real_ci75pc'] = ci_75
+
         retval['post_sigma'] = post_sigma
         return retval
         
@@ -282,7 +287,9 @@ class State ( object ):
          """Calculate the cost function using a flattened state vector representation"""
          
          x_dict = self._unpack_to_dict ( x )
-         
+         # Store the parameter dictionary in case we need it later for e.g.
+         # crossvalidation
+         self.parameter_dictionary = x_dict
          aggr_cost = 0
          aggr_der_cost = x*0.0
          self.cost_components = {}
