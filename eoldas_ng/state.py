@@ -239,7 +239,7 @@ class State ( object ):
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
-        for epsilon in [ 1e-8, 1e-6, 1e-10, 1e-12, ]:
+        for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             print "Hessian with epsilon=%e" % epsilon
             for op_name, the_op in self.operators.iteritems():
                 try:
@@ -269,18 +269,29 @@ class State ( object ):
             except:
                 continue
             break
-        ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
-        ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
-        ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
-        ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
+        try:
+            ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
+            ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
+            ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
+            ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
+        except:
+            retval = {}
+            retval['post_cov'] = None
+            retval['real_ci5pc'] = None
+            retval['real_ci95pc'] = None
+            retval['real_ci25pc'] = None
+            retval['real_ci75pc'] = None
+            retval['post_sigma'] = None
+            print "Could not calculate Hessian!!!"
+            return retval
         retval = {}
         retval['post_cov'] = post_cov
         retval['real_ci5pc'] = ci_5
         retval['real_ci95pc'] = ci_95
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
-
         retval['post_sigma'] = post_sigma
+        
         return retval
         
     def cost ( self, x ):
