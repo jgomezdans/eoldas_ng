@@ -721,8 +721,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
                         elif jfin_diff == VARIABLE: 
                             jloc = n_const + jjloc*n_grid + itime
                             jjloc += 1
-                        h[iloc, jloc] += hs[j]                
+                        h[iloc, jloc] += hs[j]     
                     xs[i] = xxs
+            # Advance istart_doy to the end of this period
+            istart_doy = tstep
 
         return sp.lil_matrix ( h.T )
         
