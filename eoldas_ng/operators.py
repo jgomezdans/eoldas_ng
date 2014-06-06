@@ -403,8 +403,76 @@ class SpatialSmoother ( object ):
         # multiparameter, it can easily get tricky. Also really
         # need to have all mxs in sparse format, otherwise, they
         # don't fit in memory.
-        pass
+        block_mtx = []
+        n = 0
+        n_blocks = 0 # Blocks in sparse Hessian matrix
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+                n_blocks += 1
+            elif typo == VARIABLE:
+                n_elems = x[param].size
+                n += n_elems
+                n_blocks += 1
+        #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
+        rows, cols = self.nx # Needs checking...
+        i = 0
+        
+        for param, typo in state_config.iteritems():    
+            if typo == FIXED: # Default value for all times
+                # Doesn't do anything so we just skip
+                pass   
+                
+            if typo == CONSTANT: # Constant value for all times
+                # No model constraint!            
+                i += 1          
+                this_block = [ None for i in xrange(n_blocks) ]
+                this_block [i] = [0.]
+                block_mtx.append ( this_block )
+            elif typo == VARIABLE:
+                if param in self.required_params :
+                    try:
+                        sigma_model = self.gamma[param]
+                    except:
+                        sigma_model = self.gamma
 
+                    # Generate DeltaY
+                    # The first diagonal is defined as...
+                    d1 = np.ones(rows*rows, dtype=np.int8)*2 
+                    d1[::rows] = 1 
+                    d1 [(rows-1)::rows] = 1
+                    # The +1 or -1 diagonals are
+                    d2 = -np.ones(rows*rows, dtype=np.int8) 
+                    d2[(rows-1)::rows] = 0
+                    DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
+                    # For some reason, I can't build the actual sparse matrix from the diagonals...
+                    DYsparse = scipy.sparse.dia_matrix (DYsyn, dtype=np.float32)
+
+                    #Generate DeltaX
+                    # The main diagonal
+                    d1 = 2*np.ones(rows*rows, dtype=np.int8) 
+                    d1[:rows] = 1 
+                    d1[-rows:] = 1
+
+
+                    d2 = -1*np.ones(rows*rows, dtype=np.int8)
+                    DXsparse = scipy.sparse.spdiags( [ d1, d2, d2], \
+                        [0, rows, -rows], rows*rows, rows*rows)
+                    # Stuff this particular bit of the Hessian in the complete
+                    # big matrix...
+                    this_block = [ None for i in xrange(n_blocks) ]
+                    this_block [i] = ((DYsparse + DXsparse)/\
+                                    sigma_model**2)
+                    block_mtx.append ( this_block )
+
+                    
+        ### h neds to be defined as a sp.bmat, and build from the individual
+        ### sparse blocks, including for single parameters (these are 0 contributions)
+        ### need to produce a list like this:
+        ### [ [ h None None],[ None, H, None]] etc.
+        h = sp.bmat ( block_mtx, format="lil", dtype=np.float32 )
+        return h
+        
 class ObservationOperator ( object ):
     """An Identity observation operator"""
     def __init__ ( self, state_grid, observations, sigma_obs, mask, \

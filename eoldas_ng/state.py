@@ -241,6 +241,7 @@ class State ( object ):
         x_dict = self._unpack_to_dict ( x )
         for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             print "Hessian with epsilon=%e" % epsilon
+            
             for op_name, the_op in self.operators.iteritems():
                 try:
                     this_hessian = the_op.der_der_cost ( x, self.state_config, \
