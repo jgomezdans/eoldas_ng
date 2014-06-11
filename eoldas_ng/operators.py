@@ -622,7 +622,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 #else:
                 x_params[ j, : ] = x_dict[param]
             j += 1
-        
+        self.fwd_modelled_obs = []
         istart_doy = self.state_grid[0]
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
@@ -644,10 +644,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
             for this_obs_loc in sel_obs.nonzero()[0]:
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
-                this_cost, this_der = self.calc_mismatch ( this_obsop, \
+                this_cost, this_der, fwd_model = self.calc_mismatch ( this_obsop, \
                     x_params[:, itime], \
                     this_obs, self.bu, *this_extra )
-            
+                self.fwd_modelled_obs.append ( fwd_model ) # Store fwd model
                 cost += this_cost
                 the_derivatives[ :, itime] += this_der
             # Advance istart_doy to the end of this period
@@ -674,8 +674,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
     
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
-        this_cost, this_der = fwd_model ( gp, x, obs, bu, band_pass, bw )
-        return this_cost, this_der
+        this_cost, this_der, fwd = fwd_model ( gp, x, obs, bu, band_pass, bw )
+        return this_cost, this_der, fwd
     
     
     def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-5 ):
@@ -1007,6 +1007,7 @@ class ObservationOperatorImageGP ( object ):
                 ).astype ( np.bool )
         else:
             zmask = self.mask
+        self.fwd_modelled_obs = np.zeros_like ( self.observations )
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
@@ -1022,6 +1023,7 @@ class ObservationOperatorImageGP ( object ):
                     self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
             err = ( fwd_model - self.observations[band, self.mask] )
+            self.fwd_modelled_obs[band, self.mask] = fwd_model
             cost += np.sum(0.5 * err**2/self.bu[band]**2 )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
@@ -1047,7 +1049,7 @@ class ObservationOperatorImageGP ( object ):
                 ####self.observations[band, self.mask] ) \
                 ####/self.bu[band]**2)[:, None]).T
 
-        
+        self.fwd_modelled_obs.append ( 
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
