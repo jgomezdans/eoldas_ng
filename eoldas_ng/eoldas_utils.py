@@ -157,15 +157,16 @@ def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
     f, g = gp.predict ( np.atleast_2d( x ) )
     cost = 0
     der_cost = []
-    
+    fwd_model_obs = []
     for i in xrange( len(band_pass) ):
         d = f[band_pass[i]].sum()/bw[i] - R[i]
+        fwd_model_obs.append ( f[band_pass[i]].sum()/bw[i] )
         derivs = d*g[:, band_pass[i] ]/(bw[i]*(band_unc[i]**2))
         #derivs = d*g[:, band_pass[i] ]/((band_unc[i]**2))
         cost += 0.5*np.sum(d*d)/(band_unc[i])**2
         der_cost.append ( np.array(derivs.sum( axis=1)).squeeze() )
     
-    return cost, np.array( der_cost ).squeeze().sum(axis=0)
+    return cost, np.array( der_cost ).squeeze().sum(axis=0), fwd_model_obs
 
 def downsample(myarr,factorx,factory):
     """
