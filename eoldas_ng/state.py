@@ -9,6 +9,9 @@ __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
+import time
+
+
 import numpy as np
 import scipy.optimize
 import scipy.sparse as sp
@@ -203,6 +206,7 @@ class State ( object ):
     def optimize ( self, x0=None, bounds=None, do_unc=False ):
         
         """Optimise the state starting from a first guess `x0`"""
+        start_time = time.clock()
         if type(x0) == type ( {} ):
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif type( x0 ) is str:
@@ -230,6 +234,9 @@ class State ( object ):
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r[0], do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r[0], do_invtransform=False )
+        end_time = time.clock()
+        if self.verbose:
+            print "Total optimisation time: %d (sec)" % ( end_time - start_time )
         if do_unc:
             retval_dict.update ( self.do_uncertainty ( r[0] ) )
         

@@ -390,12 +390,13 @@ class SpatialSmoother ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params :
-                try:
-                    sigma_model = self.gamma[param]
-                except:
-                    sigma_model = self.gamma
-
                     
+                    try:
+                        sigma_model = self.gamma[ \
+                            self.required_params.index(param) ]
+                    except:
+                        sigma_model = self.gamma
+                   
                     xa = x_dict[param].reshape( self.nx )
                     cost, dcost = fit_smoothness ( xa, sigma_model )
                     der_cost[i:(i+n_elems)] = dcost.flatten()
