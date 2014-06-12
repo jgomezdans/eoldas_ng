@@ -390,9 +390,14 @@ class SpatialSmoother ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params :
+                try:
+                    sigma_model = self.gamma[param]
+                except:
+                    sigma_model = self.gamma
+
                     
                     xa = x_dict[param].reshape( self.nx )
-                    cost, dcost = fit_smoothness ( xa, self.gamma )
+                    cost, dcost = fit_smoothness ( xa, sigma_model )
                     der_cost[i:(i+n_elems)] = dcost.flatten()
                 i += n_elems
                 
@@ -1049,7 +1054,7 @@ class ObservationOperatorImageGP ( object ):
                 ####self.observations[band, self.mask] ) \
                 ####/self.bu[band]**2)[:, None]).T
 
-        self.fwd_modelled_obs.append ( 
+        
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
