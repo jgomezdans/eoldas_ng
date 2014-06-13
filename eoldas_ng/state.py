@@ -227,7 +227,7 @@ class State ( object ):
 #                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                "gtol":1e-15, "maxcor":200, "maxiter":1500 })
+                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
             retval = [ r.x*1 ]
             end_time = time.clock()
             if self.verbose:
@@ -251,7 +251,7 @@ class State ( object ):
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
             do_invtransform=False )
         if do_unc:
-            retval_dict.update ( self.do_uncertainty ( r[0] ) )
+            retval_dict.update ( self.do_uncertainty ( r.x ) )
         
         return retval_dict
     
