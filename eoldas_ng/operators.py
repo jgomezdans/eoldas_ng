@@ -843,7 +843,7 @@ class ObservationOperatorImageGP ( object ):
         self.band_pass = band_pass
         self.bw = bw
         self.factor = factor
-
+        self.fwd_modelled_obs = np.zeros_like ( self.observations )
 
     def first_guess ( self, state_config ):
         """
@@ -1013,7 +1013,7 @@ class ObservationOperatorImageGP ( object ):
                 ).astype ( np.bool )
         else:
             zmask = self.mask
-        self.fwd_modelled_obs = np.zeros_like ( self.observations )
+
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
