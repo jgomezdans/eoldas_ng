@@ -422,8 +422,7 @@ class SpatialSmoother ( object ):
                 n_blocks += 1
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
         rows, cols = self.nx # Needs checking...
-        i = 0
-        
+        jj = 0
         for param, typo in state_config.iteritems():    
             if typo == FIXED: # Default value for all times
                 # Doesn't do anything so we just skip
@@ -431,10 +430,11 @@ class SpatialSmoother ( object ):
                 
             if typo == CONSTANT: # Constant value for all times
                 # No model constraint!            
-                i += 1          
                 this_block = [ None for i in xrange(n_blocks) ]
-                this_block [i] = [0.]
+                this_block [jj] = sp.lil_matrix(np.array([[0.]]))
                 block_mtx.append ( this_block )
+                jj += 1          
+
             elif typo == VARIABLE:
                 if param in self.required_params :
                     try:
@@ -467,9 +467,10 @@ class SpatialSmoother ( object ):
                     # Stuff this particular bit of the Hessian in the complete
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
-                    this_block [i] = ((DYsparse + DXsparse)/\
+                    this_block [jj] = ((DYsparse + DXsparse)/\
                                     sigma_model**2)
                     block_mtx.append ( this_block )
+                    jj += 1          
 
                     
         ### h neds to be defined as a sp.bmat, and build from the individual
@@ -1068,16 +1069,18 @@ class ObservationOperatorImageGP ( object ):
         
         return cost, der_cost
     
-    def der_der_cost ( self, x, state_config, epsilon=1.0e-9 ):
+    def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
         """Numerical approximation to the Hessian"""
-            
+
         N = x.size
         h = np.zeros((N,N))
-        df_0 = self.der_cost ( x, state_config )[1]
+        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+        df_0 = self.der_cost ( x_dict, state_config )[1]
         for i in xrange(N):
             xx0 = 1.*x[i]
             x[i] = xx0 + epsilon
-            df_1 = self.der_cost ( x, state_config )[1]
+            x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+            df_1 = self.der_cost ( x_dict, state_config )[1]
             h[i,:] = (df_1 - df_0)/epsilon
             x[i] = xx0
-        return h
+        return sp.lil_matrix ( h )

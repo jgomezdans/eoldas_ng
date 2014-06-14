@@ -281,7 +281,7 @@ class State ( object ):
                     this_hessian = the_op.der_der_cost ( x_dict, \
                         self.state_config, self, epsilon=epsilon )
                 if self.verbose:
-                    print "Saving Hessian to %s_%s.npk" % ( self.output_name, \
+                    print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
                         op_name )
                 cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
                     % ( self.output_name, op_name ), 'w'))
