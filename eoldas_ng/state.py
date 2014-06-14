@@ -8,6 +8,8 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+import cPickle
+import platform
 from collections import OrderedDict
 import time
 
@@ -17,6 +19,7 @@ import scipy.optimize
 import scipy.sparse as sp
 
 from eoldas_utils import *
+
 FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
@@ -44,7 +47,7 @@ class State ( object ):
        just prescribe some default value."""
        
     def __init__ ( self, state_config, state_grid, default_values, \
-            parameter_min, parameter_max, verbose=False ):
+            parameter_min, parameter_max, output_name=False, verbose=False ):
         """State constructor
         
         
@@ -64,7 +67,14 @@ class State ( object ):
                 self.parameter_max[param] ] )
         self.invtransformation_dict = {}
         self.transformation_dict = {}
-        
+        if output_name is None:
+            tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
+            tag += platform.node()
+            self.output_name = "eoldas_retval_%s.pkl" % tag
+            
+        else:
+            self.output_name = output_name
+        print "Saving results to %s" % self.output_name
         
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
@@ -228,7 +238,6 @@ class State ( object ):
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
                 "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-            retval = [ r.x*1 ]
             end_time = time.clock()
             if self.verbose:
                 if r.success:
@@ -241,17 +250,19 @@ class State ( object ):
                 print "Number of function evaluations: %d " % r.nfev
                 print "Value of the function @ minimum: %e" % r.fun
                 print "Total optimisation time: %d (sec)" % ( end_time - start_time )
-            #retval = []
-            #retval.append ( x0*1.)
         else:
-            retval = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, disp=10, \
-                bounds=bounds, m=100, maxfun=1500, factr=1e-3, pgtol=1e-20)
+            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
+                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
             do_invtransform=False )
         if do_unc:
             retval_dict.update ( self.do_uncertainty ( r.x ) )
+        if self.verbose:
+            print "Saving results to %s" % self.output_name
+            cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
         
         return retval_dict
     
@@ -270,11 +281,10 @@ class State ( object ):
                     this_hessian = the_op.der_der_cost ( x_dict, \
                         self.state_config, self, epsilon=epsilon )
                 if self.verbose:
-                    print "Saving Hessian to %s.npz" % op_name
-                if sp.issparse ( this_hessian ):
-                    np.savez ( "%s.npz" % op_name, hessian=this_hessian.todense() )
-                else:
-                    np.savez ( "%s.npz" % op_name, hessian=this_hessian )
+                    print "Saving Hessian to %s_%s.npk" % ( self.output_name, \
+                        op_name )
+                cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
+                    % ( self.output_name, op_name ), 'w'))
                 the_hessian = the_hessian + this_hessian
             a_sps = sp.csc_matrix( the_hessian )
             try:
@@ -312,7 +322,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-        
+            
         return retval
         
     def cost ( self, x ):
