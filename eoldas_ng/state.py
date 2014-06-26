@@ -287,6 +287,7 @@ class State ( object ):
                     % ( self.output_name, op_name ), 'w'))
                 the_hessian = the_hessian + this_hessian
             a_sps = sp.csc_matrix( the_hessian )
+            
             try:
                 lu_obj = sp.linalg.splu( a_sps )
             except RuntimeError:
@@ -313,6 +314,7 @@ class State ( object ):
             retval['real_ci25pc'] = None
             retval['real_ci75pc'] = None
             retval['post_sigma'] = None
+            retval['hessian'] = None
             print "Could not calculate Hessian!!!"
             return retval
         retval = {}
@@ -322,7 +324,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-            
+        retval['hessian'] = the_hessian    
         return retval
         
     def cost ( self, x ):
