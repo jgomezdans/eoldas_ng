@@ -295,6 +295,8 @@ class State ( object ):
                 # epsilon
                 continue
             try:
+                # post_cov isn't sparse... :(
+                
                 post_cov = lu_obj.solve( np.eye(x.size) )
                 #post_cov = np.linalg.inv ( the_hessian )
                 post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()

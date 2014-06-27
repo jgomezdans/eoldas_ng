@@ -19,7 +19,7 @@ import scipy.sparse as sp
 from scipy.ndimage.interpolation import zoom
 
 from eoldas_utils import *
-from memory_profiler import profile
+
 FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
@@ -171,7 +171,7 @@ class Prior ( object ):
                 i += n_elems
         
         return cost, der_cost
-    @profile
+
     def der_der_cost ( self, x_dict, state_config, state, epsilon=None ):
         """ The Hessian is just the inverse prior covariance matrix.
         However, we require the extra parameters for consistency, and
@@ -414,7 +414,7 @@ class SpatialSmoother ( object ):
                 
                 
         return cost, der_cost
-    @profile
+    
     def der_der_cost ( self, x, state_config, state, epsilon=None ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
@@ -461,8 +461,9 @@ class SpatialSmoother ( object ):
                     # The +1 or -1 diagonals are
                     d2 = -np.ones(rows*rows, dtype=np.int8) 
                     d2[(rows-1)::rows] = 0
-                    DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
-                    # For some reason, I can't build the actual sparse matrix from the diagonals...
+                    DYsyn = sp.dia_matrix ( (d1,0), shape=(rows*cols, rows*cols)) + \
+                             sp.dia_matrix ( (np.r_[0,d2], 1), shape=(rows*cols, rows*cols)) + \
+                             sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(rows*cols, rows*cols))
                     DYsparse = scipy.sparse.dia_matrix (DYsyn, dtype=np.float32)
 
                     #Generate DeltaX
