@@ -319,7 +319,7 @@ class TemporalSmoother ( object ):
                 n_elems = x[param].size
                 n += n_elems
         
-        h = np.empty ( (n ,n ) )
+        h = sp.lil ( (n ,n ) )
         i = 0
         isel_param = 0
         for param, typo in state_config.iteritems():
@@ -329,17 +329,17 @@ class TemporalSmoother ( object ):
                 pass
                 
             elif typo == CONSTANT: # Constant value for all times
-                h[i, i ] = 0.0
+                # h[i, i ] = 0.0 Matrix is sparse now ;-)
                 i += 1                
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-                    hessian = self.gamma[isel_param]*np.dot ( \
-                         self.D1,np.eye( self.n_elems )).dot( self.D1.T )
+                    hessian = sp.lil_matrix ( self.gamma[isel_param]*np.dot ( \
+                         self.D1,np.eye( self.n_elems )).dot( self.D1.T ) )
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
-        return sp.lil_matrix ( h  )
+        return h
 
 class SpatialSmoother ( object ):
     """MRF prior"""
