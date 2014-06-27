@@ -716,7 +716,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         n, n_elems = get_problem_size ( x_dict, state_config )
         
         der_cost = np.zeros ( n )
-        h = np.zeros ( (n,n))
+        h = sp.lil_matrix ( (n,n))
         x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
         j = 0
         ii = 0
