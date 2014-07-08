@@ -579,7 +579,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_bands, self.n_obs = self.observations.shape
+            self.n_obs, self.n_bands = self.observations.shape
         except:
             raise ValueError, "Typically, obs should be (n_obs, n_bands)"
         self.mask = mask
