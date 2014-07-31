@@ -238,7 +238,7 @@ class State ( object ):
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
                 "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-            end_time = time.clock()
+            end_time = time.time()
             if self.verbose:
                 if r.success:
                     print "Minimisation was successful: %d \n%s" % \
@@ -249,7 +249,7 @@ class State ( object ):
                 print "Number of iterations: %d" % r.nit
                 print "Number of function evaluations: %d " % r.nfev
                 print "Value of the function @ minimum: %e" % r.fun
-                print "Total optimisation time: %d (sec)" % ( end_time - start_time )
+                print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
         else:
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
@@ -335,6 +335,7 @@ class State ( object ):
          aggr_cost = 0
          aggr_der_cost = x*0.0
          self.cost_components = {}
+         start_time = time.time()
          for op_name, the_op in self.operators.iteritems():
              
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
@@ -345,4 +346,7 @@ class State ( object ):
                  print "\t%s %f" % ( op_name, cost )
          self.the_cost = aggr_cost
          
+         if self.verbose:
+             print 'Elapsed: %.2f seconds' % (time.time() - start_time)
+             
          return aggr_cost, aggr_der_cost

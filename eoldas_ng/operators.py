@@ -859,7 +859,7 @@ class ObservationOperatorImageGP ( object ):
         x0 = dict()        
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
-            x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T )[0]
+            x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T, do_unc=False )[0]
             x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
         return x0
 
@@ -929,8 +929,8 @@ class ObservationOperatorImageGP ( object ):
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
-            fwd_model, emu_err, partial_derv = \
-                self.emulators[band].predict ( x_params[:, :].T )
+            fwd_model, partial_derv = \
+                self.emulators[band].predict ( x_params[:, :].T, do_unc=False )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1020,8 +1020,8 @@ class ObservationOperatorImageGP ( object ):
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
-            fwd_model, emu_err, partial_derv = \
-                self.emulators[band].predict ( x_params[:, zmask.flatten()].T )
+            fwd_model,  partial_derv = \
+                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
