@@ -1020,6 +1020,7 @@ class ObservationOperatorImageGP ( object ):
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
+            import pdb; pdb.set_trace()
             fwd_model,  partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
             if self.factor is not None:
@@ -1071,10 +1072,66 @@ class ObservationOperatorImageGP ( object ):
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
         """Numerical approximation to the Hessian"""
-
+        """NOTE The likelihood hessian is given by
+        J''(x) = H'(x)^{T}C_{obs}^{T}H'(x) - H''(x)C_{obs}^{-1}(R - H(x))
+        This means that we need both the linear first order approximation, but
+        also the Hessian code, and the misfit. All in all, a pain in the arse
+        to estimate"""
+        
         N = x.size
         h = np.zeros((N,N))
+        h = ss.lil_matrix ( ( N, N ), dtype=np.float32 )
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+        ## This next bit is for the linear approximation, we need H'(x)
+        cost, jacobian = self.der_cost ( x_dict, state_config )
+        ## Here we need to do the linear bit of the matrix
+        ## this means re-arranging the jacobian per observation
+        
+        i_unmasked = 0
+        n_grid = self.nx*self.ny # The grid size
+        n_obs = self.mask.flatten().sum() # The number of grid points with
+                                          # observations availabl
+        ###TODO define select pars, the selected parameters
+        ###TODO Need to cope with CONSTANT parameters too
+        # Now, loop over all pixels...
+        for ipxl in xrange ( n_grid  ):
+            if self.mask.flatten()[ipxl]:
+                # This pixel isn't masked out...
+                # Start by just selecting the jacobian parameters
+                #############################################################
+                ## THIS IS OVERCOMPLICATED, NEED TO CALL THE GP DIRECTLY
+                ## and use that information here
+                #############################################################
+                jac = jacobian [ par*n_obs + i_unmasked ] \
+                    for par in selected_pars ]
+                #############################################################
+                ## The different resolution effect needs to be taken here
+                ## My guess is that we need to reduce the Hessian by the
+                ## scaling factor (this is an increase in uncertainty)
+                #############################################################
+                Hs = [ np.outer ( jac, jac )/(self.bu[b]**2) \
+                    for b in xrange ( self.n_bands) ]
+                for i in selected_pars:
+                    for j in selected_pars: 
+                        h[i*n_grid + ipxl, j*n_grid + ipxl ] = Hs[i,j]
+        # So this is the first approximation to the Hessian, bar the above todos
+        
+        
+        
+        
+        
+        
+        ## This next bit is the calculation of (R-H(x))
+        err = np.zeros_like ( self.observations )
+        for band in xrange ( self.n_bands ):
+            err[band, self.mask] = (  self.observations[band, self.mask] - \
+                self.fwd_modelled_obs[band, self.mask] )
+            
+       
+        
+        ########################################################################
+        ## Numerical hessian code stuff                                       ##
+        ########################################################################
         df_0 = self.der_cost ( x_dict, state_config )[1]
         for i in xrange(N):
             xx0 = 1.*x[i]
