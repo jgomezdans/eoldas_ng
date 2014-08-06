@@ -1020,7 +1020,6 @@ class ObservationOperatorImageGP ( object ):
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
-            import pdb; pdb.set_trace()
             fwd_model,  partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
             self.obs_op_grad.append ( partial_derv )
@@ -1084,6 +1083,9 @@ class ObservationOperatorImageGP ( object ):
         h = ss.lil_matrix ( ( N, N ), dtype=np.float32 )
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
         
+        # We need the gradient of the observation operator. This is stored as
+        # a list in the object, convert it to an array
+        jacobian = np.array ( self.obs_op_grad )
         ## Here we need to do the linear bit of the matrix
         ## this means re-arranging the jacobian per observation
         
@@ -1094,6 +1096,11 @@ class ObservationOperatorImageGP ( object ):
         ###TODO define select pars, the selected parameters
         ###TODO Need to cope with CONSTANT parameters too
         # Now, loop over all pixels...
+        n_pars = jacobian.shape[-1] # Number of parameters
+        # Location of the parameters we'll be using. Note that this includes
+        # both CONSTANT and VARIABLE parameters!
+        sel_pars = [ i \
+            for ( i, (k,v)) in enumerate ( state_config.iteritems() ) if v > 1 ]
         for ipxl in xrange ( n_grid  ):
             if self.mask.flatten()[ipxl]:
                 # This pixel isn't masked out...
@@ -1102,42 +1109,47 @@ class ObservationOperatorImageGP ( object ):
                 ## THIS IS OVERCOMPLICATED, NEED TO CALL THE GP DIRECTLY
                 ## and use that information here
                 #############################################################
-                jac = jacobian [ par*n_obs + i_unmasked ] \
-                    for par in selected_pars ]
+                Hs = np.zeros ( ( len(sel_pars), len(sel_pars) ))
+                for b in xrange ( self.n_bands)
+                    # Need to check that jacobian is Nbands, Nx*Ny, Npars
+                    jac = jacobian [ band, ipxl, par] \
+                        for par in sel_pars ]
                 #############################################################
                 ## The different resolution effect needs to be taken here
-                ## My guess is that we need to reduce the Hessian by the
-                ## scaling factor (this is an increase in uncertainty)
                 #############################################################
-                Hs = [ np.outer ( jac, jac )/(self.bu[b]**2) \
-                    for b in xrange ( self.n_bands) ]
-                for i in selected_pars:
-                    for j in selected_pars: 
-                        h[i*n_grid + ipxl, j*n_grid + ipxl ] = Hs[i,j]
+                    Hs = np.matrix ( jac ).T * np.matrix( \
+                        np.diag(np.ones(n_pars)*/(self.bu[b]**2))) * \
+                        np.matrix(jac)
+                # At this point, we have calcualted H'(x)C^{-1}H(x) for this
+                # location in the grid, and need to place it in the right
+                # place in the output Hessian
+                for i in sel_pars:
+                    for j in sel_pars: 
+                        h [ i*n_grid + ipxl, j*n_grid + ipxl ] = Hs [ i, j ]
         # So this is the first approximation to the Hessian, bar the above todos
+        return h # linear_approx
         
         
         
         
         
-        
-        ## This next bit is the calculation of (R-H(x))
-        err = np.zeros_like ( self.observations )
-        for band in xrange ( self.n_bands ):
-            err[band, self.mask] = (  self.observations[band, self.mask] - \
-                self.fwd_modelled_obs[band, self.mask] )
+        #### This next bit is the calculation of (R-H(x))
+        ##err = np.zeros_like ( self.observations )
+        ##for band in xrange ( self.n_bands ):
+            ##err[band, self.mask] = (  self.observations[band, self.mask] - \
+                ##self.fwd_modelled_obs[band, self.mask] )
             
        
         
-        ########################################################################
-        ## Numerical hessian code stuff                                       ##
-        ########################################################################
-        df_0 = self.der_cost ( x_dict, state_config )[1]
-        for i in xrange(N):
-            xx0 = 1.*x[i]
-            x[i] = xx0 + epsilon
-            x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-            df_1 = self.der_cost ( x_dict, state_config )[1]
-            h[i,:] = (df_1 - df_0)/epsilon
-            x[i] = xx0
-        return sp.lil_matrix ( h )
+        ##########################################################################
+        #### Numerical hessian code stuff                                       ##
+        ##########################################################################
+        ##df_0 = self.der_cost ( x_dict, state_config )[1]
+        ##for i in xrange(N):
+            ##xx0 = 1.*x[i]
+            ##x[i] = xx0 + epsilon
+            ##x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+            ##df_1 = self.der_cost ( x_dict, state_config )[1]
+            ##h[i,:] = (df_1 - df_0)/epsilon
+            ##x[i] = xx0
+        ##return sp.lil_matrix ( h )
