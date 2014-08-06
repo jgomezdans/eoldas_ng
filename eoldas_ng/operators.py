@@ -1014,15 +1014,16 @@ class ObservationOperatorImageGP ( object ):
                 ).astype ( np.bool )
         else:
             zmask = self.mask
-
+        self.obs_op_grad = []
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
             import pdb; pdb.set_trace()
-            fwd_model,  self.partial_derv = \
+            fwd_model,  partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
+            self.obs_op_grad.append ( partial_derv )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1050,7 +1051,7 @@ class ObservationOperatorImageGP ( object ):
                 err = zoom ( err.reshape((self.nx, self.ny)), \
                     self.factor, order=0, mode="nearest" ).flatten()
  
-            the_derivatives[:, zmask.flatten()] += (self.partial_derv[:, :] * \
+            the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
                 (err/self.bu[band]**2)[:, None]).T
             ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
                 ####(( fwd_model[:] - \
@@ -1082,8 +1083,7 @@ class ObservationOperatorImageGP ( object ):
         h = np.zeros((N,N))
         h = ss.lil_matrix ( ( N, N ), dtype=np.float32 )
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-        ## This next bit is for the linear approximation, we need H'(x)
-        cost, jacobian = self.der_cost ( x_dict, state_config )
+        
         ## Here we need to do the linear bit of the matrix
         ## this means re-arranging the jacobian per observation
         
