@@ -1021,7 +1021,7 @@ class ObservationOperatorImageGP ( object ):
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
             import pdb; pdb.set_trace()
-            fwd_model,  partial_derv = \
+            fwd_model,  self.partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
@@ -1050,7 +1050,7 @@ class ObservationOperatorImageGP ( object ):
                 err = zoom ( err.reshape((self.nx, self.ny)), \
                     self.factor, order=0, mode="nearest" ).flatten()
  
-            the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
+            the_derivatives[:, zmask.flatten()] += (self.partial_derv[:, :] * \
                 (err/self.bu[band]**2)[:, None]).T
             ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
                 ####(( fwd_model[:] - \
