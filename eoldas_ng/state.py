@@ -230,35 +230,37 @@ class State ( object ):
                             x0[param] = self.operators ['prior'].mu[param]
                         
             x0 = self.pack_from_dict ( x0, do_transform=False )
-        if bounds is None:
-            the_bounds = self._get_bounds_list()
+        #if bounds is None:
+            #the_bounds = self._get_bounds_list()
             
-#            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
-#                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
-            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-            end_time = time.time()
-            if self.verbose:
-                if r.success:
-                    print "Minimisation was successful: %d \n%s" % \
-                        ( r.status, r.message )
-                else:
-                    print "Minimisation was NOT successful: %d \n%s" % \
-                        ( r.status, r.message )
-                print "Number of iterations: %d" % r.nit
-                print "Number of function evaluations: %d " % r.nfev
-                print "Value of the function @ minimum: %e" % r.fun
-                print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
-        else:
-            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-        retval_dict = {}
-        retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
-        retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
-            do_invtransform=False )
+##            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
+##                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
+            #r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+                #jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
+                #"gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+            #end_time = time.time()
+            #if self.verbose:
+                #if r.success:
+                    #print "Minimisation was successful: %d \n%s" % \
+                        #( r.status, r.message )
+                #else:
+                    #print "Minimisation was NOT successful: %d \n%s" % \
+                        #( r.status, r.message )
+                #print "Number of iterations: %d" % r.nit
+                #print "Number of function evaluations: %d " % r.nfev
+                #print "Value of the function @ minimum: %e" % r.fun
+                #print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
+        #else:
+            #r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+                #jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
+                #"gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+        #retval_dict = {}
+        #retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
+        #retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
+            #do_invtransform=False )
         if do_unc:
+            import pdb; pdb.set_trace()
+            unc = self.do_uncertainty ( x0 )
             retval_dict.update ( self.do_uncertainty ( r.x ) )
         if self.verbose:
             print "Saving results to %s" % self.output_name
@@ -270,6 +272,11 @@ class State ( object ):
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
+        cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
+            self.state_config )
+        this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
+                        self.state_config, self, epsilon=1e-10 )
+        
         for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             print "Hessian with epsilon=%e" % epsilon
             

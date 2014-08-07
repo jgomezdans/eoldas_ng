@@ -1079,13 +1079,14 @@ class ObservationOperatorImageGP ( object ):
         to estimate"""
         
         N = x.size
-        h = np.zeros((N,N))
-        h = ss.lil_matrix ( ( N, N ), dtype=np.float32 )
+        
+        h = sp.lil_matrix ( ( N, N ), dtype=np.float32 )
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
         
         # We need the gradient of the observation operator. This is stored as
         # a list in the object, convert it to an array
         jacobian = np.array ( self.obs_op_grad )
+        # The jacobian is Nbands, Nx*Ny, Nparams
         ## Here we need to do the linear bit of the matrix
         ## this means re-arranging the jacobian per observation
         
@@ -1101,6 +1102,7 @@ class ObservationOperatorImageGP ( object ):
         # both CONSTANT and VARIABLE parameters!
         sel_pars = [ i \
             for ( i, (k,v)) in enumerate ( state_config.iteritems() ) if v > 1 ]
+        sel_pars = np.array ( sel_pars )
         for ipxl in xrange ( n_grid  ):
             if self.mask.flatten()[ipxl]:
                 # This pixel isn't masked out...
@@ -1110,16 +1112,20 @@ class ObservationOperatorImageGP ( object ):
                 ## and use that information here
                 #############################################################
                 Hs = np.zeros ( ( len(sel_pars), len(sel_pars) ))
-                for b in xrange ( self.n_bands)
+                for b in xrange ( self.n_bands):
                     # Need to check that jacobian is Nbands, Nx*Ny, Npars
-                    jac = jacobian [ band, ipxl, par] \
-                        for par in sel_pars ]
+                    jac = jacobian [ b, ipxl, sel_pars] 
+                        
                 #############################################################
                 ## The different resolution effect needs to be taken here
                 #############################################################
-                    Hs = np.matrix ( jac ).T * np.matrix( \
-                        np.diag(np.ones(n_pars)*/(self.bu[b]**2))) * \
-                        np.matrix(jac)
+                    #Hs = np.matrix ( jac ).T * np.matrix( \
+                        #np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) * \
+                        #np.matrix(jac)
+                    C = np.matrix( \
+                        np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) 
+                    Hs += (np.matrix(jac).T*np.matrix(jac))*C
+
                 # At this point, we have calcualted H'(x)C^{-1}H(x) for this
                 # location in the grid, and need to place it in the right
                 # place in the output Hessian
