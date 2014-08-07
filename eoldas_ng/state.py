@@ -294,6 +294,7 @@ class State ( object ):
                     % ( self.output_name, op_name ), 'w'))
                 the_hessian = the_hessian + this_hessian
             a_sps = sp.csc_matrix( the_hessian )
+            
             try:
                 lu_obj = sp.linalg.splu( a_sps )
             except RuntimeError:
@@ -301,8 +302,21 @@ class State ( object ):
                 # epsilon
                 continue
             try:
-                post_cov = lu_obj.solve( np.eye(x.size) )
+                # post_cov isn't sparse... :(
+                print "Inverting Hessian..."
+                if x.size > 1e5:
+                    post_cov = sp.lil_matrix ( (x.size, x.size) )
+
+                    for k in xrange( x.size ) :
+                        b = np.zeros((x.size,))
+                        b[k] = 1
+                        this_row = lu_obj.solve(b)
+                        ilocs = np.where ( np.abs(this_row) >= 1e-6 )[0]
+                        post_cov[ilocs, k] = this_row[ilocs, None]
+                else:
+                    post_cov = sp.lil_matrix ( lu_obj.solve( np.eye(x.size) ) )
                 #post_cov = np.linalg.inv ( the_hessian )
+                print "... Inverted!!! Phew!!"
                 post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
             except:
                 continue
@@ -320,6 +334,7 @@ class State ( object ):
             retval['real_ci25pc'] = None
             retval['real_ci75pc'] = None
             retval['post_sigma'] = None
+            retval['hessian'] = None
             print "Could not calculate Hessian!!!"
             return retval
         retval = {}
@@ -329,7 +344,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-            
+        retval['hessian'] = the_hessian    
         return retval
         
     def cost ( self, x ):

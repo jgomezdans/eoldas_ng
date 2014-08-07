@@ -53,7 +53,6 @@ class Prior ( object ):
         """
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
-        
     def pack_from_dict ( self, x_dict, state_config ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
@@ -159,9 +158,11 @@ class Prior ( object ):
                     # Single parameter for all sites/locations etc
                     # This should really be in the __init__ method!
                     sigma = self.inv_cov[param]
-                    self.inv_cov[param] = np.diag( np.ones(n_elems)*sigma )
+                    
+                    self.inv_cov[param] = sp.dia_matrix ( ( np.ones(n_elems)*sigma, 0 ), shape=(n_elems, n_elems))
+
                 
-                cost_m = ( x_dict[param].flatten() - self.mu[param]).dot ( \
+                cost_m = ( x_dict[param].flatten() - self.mu[param]) * ( \
                             self.inv_cov[param] )
                 cost = cost + 0.5*(cost_m*(x_dict[param].flatten() - \
                             self.mu[param])).sum()
@@ -170,7 +171,6 @@ class Prior ( object ):
                 i += n_elems
         
         return cost, der_cost
-    
 
     def der_der_cost ( self, x_dict, state_config, state, epsilon=None ):
         """ The Hessian is just the inverse prior covariance matrix.
@@ -196,28 +196,38 @@ class Prior ( object ):
         if sp.issparse ( self.inv_cov ):
             # We already have it!!!
             return self.inv_cov
-        
+        n_blocks = 0 # Blocks in sparse Hessian matrix
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n_blocks += 1
+            elif typo == VARIABLE:
+                n_blocks += 1
+
         n, n_elems = get_problem_size ( x_dict, state_config )
-        h1 = np.empty ( ( n, n ) )
+        block_mtx = []   
         i = 0
+        jj = 0
         for param, typo in state_config.iteritems():
             
             if typo == FIXED:
                 pass
-            elif typo == CONSTANT:        
-                h1[i,i ] = self.inv_cov[param]
-                i += 1                
+            elif typo == CONSTANT:
+                this_block = [ None for i in xrange( n_blocks) ]
+                this_block[jj] = sp.lil_matrix ( self.inv_cov[param] )
+                block_mtx.append ( this_block )
+                jj += 1
+                i += 1
             elif typo == VARIABLE:
-                if self.inv_cov[param].size == 1:
-                    hs = np.diag ( np.ones(n_elems)*self.inv_cov[param] )
-                    h1[i:(i+n_elems), i:(i+n_elems) ] = hs
-                else:
-        
-                    h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param] 
+                this_block = [ None for i in xrange( n_blocks) ]
+                this_block[jj] = self.inv_cov[param]
+                block_mtx.append ( this_block )
+
+                jj += 1
+                #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
                 i += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
-        return sp.lil_matrix ( h1 )
+        return sp.bmat ( block_mtx, format="lil", dtype=np.float32 )
         
     
     
@@ -319,7 +329,7 @@ class TemporalSmoother ( object ):
                 n_elems = x[param].size
                 n += n_elems
         
-        h = np.empty ( (n ,n ) )
+        h = sp.lil ( (n ,n ) )
         i = 0
         isel_param = 0
         for param, typo in state_config.iteritems():
@@ -329,17 +339,17 @@ class TemporalSmoother ( object ):
                 pass
                 
             elif typo == CONSTANT: # Constant value for all times
-                h[i, i ] = 0.0
+                # h[i, i ] = 0.0 Matrix is sparse now ;-)
                 i += 1                
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-                    hessian = self.gamma[isel_param]*np.dot ( \
-                         self.D1,np.eye( self.n_elems )).dot( self.D1.T )
+                    hessian = sp.lil_matrix ( self.gamma[isel_param]*np.dot ( \
+                         self.D1,np.eye( self.n_elems )).dot( self.D1.T ) )
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
-        return sp.lil_matrix ( h  )
+        return h
 
 class SpatialSmoother ( object ):
     """MRF prior"""
@@ -404,6 +414,7 @@ class SpatialSmoother ( object ):
                 
                 
         return cost, der_cost
+    
     def der_der_cost ( self, x, state_config, state, epsilon=None ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
@@ -450,8 +461,9 @@ class SpatialSmoother ( object ):
                     # The +1 or -1 diagonals are
                     d2 = -np.ones(rows*rows, dtype=np.int8) 
                     d2[(rows-1)::rows] = 0
-                    DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
-                    # For some reason, I can't build the actual sparse matrix from the diagonals...
+                    DYsyn = sp.dia_matrix ( (d1,0), shape=(rows*cols, rows*cols)) + \
+                             sp.dia_matrix ( (np.r_[0,d2], 1), shape=(rows*cols, rows*cols)) + \
+                             sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(rows*cols, rows*cols))
                     DYsparse = scipy.sparse.dia_matrix (DYsyn, dtype=np.float32)
 
                     #Generate DeltaX
@@ -543,7 +555,7 @@ class ObservationOperator ( object ):
                 i += self.n_elems
                 
         return cost, der_cost
-    
+
     def der_der_cost ( self, x_dict, state_config, state, epsilon=None ):
         # Hessian is just C_{obs}^{-1}?
         n, n_elems = get_problem_size ( x_dict, state_config )
@@ -567,7 +579,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_obs, self.n_bands = self.observations.shape
+            self.n_bands, self.n_obs = self.observations.shape
         except:
             raise ValueError, "Typically, obs should be (n_obs, n_bands)"
         self.mask = mask
@@ -716,7 +728,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         n, n_elems = get_problem_size ( x_dict, state_config )
         
         der_cost = np.zeros ( n )
-        h = np.zeros ( (n,n))
+        h = sp.lil_matrix ( (n,n))
         x_params = np.empty ( ( len( x_dict.keys()), self.nt ) )
         j = 0
         ii = 0

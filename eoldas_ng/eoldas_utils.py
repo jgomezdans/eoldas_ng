@@ -257,3 +257,51 @@ def fit_obs_spat ( x, obs, sigma_obs, qa, factor ):
                 ####state, [""], angles=angles )   
         ####emulators[i].dump_emulator(fname + ".npz")
         ####emulators[(v,s)]= MultivariateEmulator ( dump=fname+".npz" )
+
+def dict_to_sparse ( mu_prior, prior_inv_cov, state_grid, state_config, \
+    transformations = {} ):
+    """
+    A helper function to produce a sparse prior from a dictionary. The units
+    on the dictionary are "real units", and we take an optional 
+    ``transformations`` dictionary of functions to convert to "transformed
+    variables". The state grid and configuration are required to calculate the
+    size of the problem. The function returns a vector and a sparse (diagonal)
+    matrix. 
+    """
+    parameters = state_config.items()
+    mu_prior = OrderedDict ()
+    prior_inv_cov = OrderedDict ()
+    for param in parameters:
+        if transformations.has_key ( param ):
+            mu_prior[param] = transformations[param]( \
+                    np.array([default_par[param]]) )
+        else:
+            mu_prior[param] = np.array([default_par[param]])
+        prior_inv_cov[param] = 1./prior_inv_cov[param]**2
+
+    n_elems = state_grid.size 
+    problem_size = 0
+    for param, typo in state_config.iteritems():
+        if typo == VARIABLE:
+            problem_size += n_elems
+        elif typo == CONSTANT:
+            problem_size += 1
+    prior_vect = np.zeros ( problem_size ) 
+    inv_sig_prior = np.zeros ( n_elems*6 + 2 )
+    # Now, populate said vector in the right order
+    # looping over state_config *should* preserve the order
+    i = 0
+    for param, typo in state_config.iteritems():
+        if typo == CONSTANT: # Constant value for all times
+            prior_vect[i] = mu_prior[param]
+            inv_sig_prior[i] = prior_inv_cov[param]
+            i = i+1        
+        elif typo == VARIABLE:
+            # For this particular date, the relevant parameter is at location iloc
+            prior_vect[i:(i + n_elems)] =  \
+                    np.ones(n_elems)*mu_prior[param]
+            inv_sig_prior[i:(i + n_elems)] = \
+                    np.ones ( n_elems)*prior_inv_cov[param]
+            i += n_elems
+    prior_inv_covariance = sp.dia_matrix( ([inv_sig_prior], [0]),shape=[problem_size, problem_size ])
+    return prior_vect, prior_inv_covariance
