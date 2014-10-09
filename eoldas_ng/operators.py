@@ -882,7 +882,7 @@ class ObservationOperatorImageGP ( object ):
         self.factor = factor
         self.fwd_modelled_obs = np.zeros_like ( self.observations )
 
-    def first_guess ( self, state_config ):
+    def first_guess ( self, state_config, do_unc=False ):
         """
         A method to provide a first guess of the state. The idea here is to take the GPs, 
         and recast them, so that rather than provide an emulator, they provide a regressor
@@ -892,12 +892,26 @@ class ObservationOperatorImageGP ( object ):
         gps = create_inverse_emulators ( self.original_emulators, \
             self.band_pass, state_config )
 
+        if do_unc:
+            s0 = dict()
         x0 = dict()        
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
-            x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T, do_unc=False )[0]
+            if do_unc:
+                s0[param] = np.zeros_like( self.observations[0,:, :].flatten())
+            xsol = gp.predict( self.observations[:, self.mask].T, do_unc=False )
+            x0[param][self.mask.flatten()] = xsol[0]
+            if do_unc:
+                # for the pixels where we have observations, we can use the GP
+                # uncertainty directly. For the one where we don't, we can use
+                # the maximum uncertainty. Maybe this is even too confident!
+                s0[param][self.mask.faltten()] = xsol[1]
+                s0[param][~self.mask.flatten()] = s0[param][self.mask.flatten()].max()
             x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
-        return x0
+        if do_unc:
+            return x0, s0
+        else:
+            return x0
 
     def predict_observations ( self, x_dict, state_config ):
         """
