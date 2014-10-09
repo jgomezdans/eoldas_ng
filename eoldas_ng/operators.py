@@ -142,6 +142,7 @@ class Prior ( object ):
         # The next loop calculates the cost and associated partial derivatives
         # Mainly based on the parameter type
         i = 0 # Loop variable
+        
         for param, typo in state_config.iteritems():
             if typo == FIXED: 
                 # Doesn't do anything so we just skip

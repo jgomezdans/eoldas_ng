@@ -230,37 +230,36 @@ class State ( object ):
                             x0[param] = self.operators ['prior'].mu[param]
                         
             x0 = self.pack_from_dict ( x0, do_transform=False )
-        #if bounds is None:
-            #the_bounds = self._get_bounds_list()
+        if bounds is None:
+            the_bounds = self._get_bounds_list()
             
-##            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
-##                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
-            #r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                #jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                #"gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-            #end_time = time.time()
-            #if self.verbose:
-                #if r.success:
-                    #print "Minimisation was successful: %d \n%s" % \
-                        #( r.status, r.message )
-                #else:
-                    #print "Minimisation was NOT successful: %d \n%s" % \
-                        #( r.status, r.message )
-                #print "Number of iterations: %d" % r.nit
-                #print "Number of function evaluations: %d " % r.nfev
-                #print "Value of the function @ minimum: %e" % r.fun
-                #print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
-        #else:
-            #r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                #jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                #"gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-        #retval_dict = {}
-        #retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
-        #retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
-            #do_invtransform=False )
+#            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
+#                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
+            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
+                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+            end_time = time.time()
+            if self.verbose:
+                if r.success:
+                    print "Minimisation was successful: %d \n%s" % \
+                        ( r.status, r.message )
+                else:
+                    print "Minimisation was NOT successful: %d \n%s" % \
+                        ( r.status, r.message )
+                print "Number of iterations: %d" % r.nit
+                print "Number of function evaluations: %d " % r.nfev
+                print "Value of the function @ minimum: %e" % r.fun
+                print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
+        else:
+            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
+                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+        retval_dict = {}
+        retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
+        retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
+            do_invtransform=False )
         if do_unc:
             import pdb; pdb.set_trace()
-            unc = self.do_uncertainty ( x0 )
             retval_dict.update ( self.do_uncertainty ( r.x ) )
         if self.verbose:
             print "Saving results to %s" % self.output_name
@@ -272,10 +271,10 @@ class State ( object ):
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
-        cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
-            self.state_config )
-        this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
-                        self.state_config, self, epsilon=1e-10 )
+        #cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
+            #self.state_config )
+        #this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
+                        #self.state_config, self, epsilon=1e-10 )
         
         for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             print "Hessian with epsilon=%e" % epsilon
@@ -294,7 +293,6 @@ class State ( object ):
                     % ( self.output_name, op_name ), 'w'))
                 the_hessian = the_hessian + this_hessian
             a_sps = sp.csc_matrix( the_hessian )
-            
             try:
                 lu_obj = sp.linalg.splu( a_sps )
             except RuntimeError:
@@ -302,21 +300,8 @@ class State ( object ):
                 # epsilon
                 continue
             try:
-                # post_cov isn't sparse... :(
-                print "Inverting Hessian..."
-                if x.size > 1e5:
-                    post_cov = sp.lil_matrix ( (x.size, x.size) )
-
-                    for k in xrange( x.size ) :
-                        b = np.zeros((x.size,))
-                        b[k] = 1
-                        this_row = lu_obj.solve(b)
-                        ilocs = np.where ( np.abs(this_row) >= 1e-6 )[0]
-                        post_cov[ilocs, k] = this_row[ilocs, None]
-                else:
-                    post_cov = sp.lil_matrix ( lu_obj.solve( np.eye(x.size) ) )
+                post_cov = lu_obj.solve( np.eye(x.size) )
                 #post_cov = np.linalg.inv ( the_hessian )
-                print "... Inverted!!! Phew!!"
                 post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
             except:
                 continue
@@ -334,7 +319,6 @@ class State ( object ):
             retval['real_ci25pc'] = None
             retval['real_ci75pc'] = None
             retval['post_sigma'] = None
-            retval['hessian'] = None
             print "Could not calculate Hessian!!!"
             return retval
         retval = {}
@@ -344,7 +328,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-        retval['hessian'] = the_hessian    
+            
         return retval
         
     def cost ( self, x ):
