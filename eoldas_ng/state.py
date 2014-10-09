@@ -217,9 +217,12 @@ class State ( object ):
         
         """Optimise the state starting from a first guess `x0`"""
         start_time = time.clock()
+        
         if type(x0) == type ( {} ):
+            # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif type( x0 ) is str:
+            # Use a single operator that has a ``first_guess`` method
             x0 = self.operators[x0].first_guess( self.state_config )
             for param, ptype in self.state_config.iteritems():
                 if ptype == CONSTANT:
@@ -230,6 +233,59 @@ class State ( object ):
                             x0[param] = self.operators ['prior'].mu[param]
                         
             x0 = self.pack_from_dict ( x0, do_transform=False )
+        #####elif type( x0 ) is list:
+            ###### We get one or more operators that provide one with a first guess,
+            ###### and hopefully, uncertainty. The idea is to combine these first
+            ###### guess estimates
+            #####guesses = []
+            ###### We loop over the operators we wish to use, and we pass the do_unc
+            ###### keyword so that they return a mean + uncertainty
+            #####for op in x0:
+                #####try:
+                    #####guesses.append ( self.operators[x0].first_guess( \
+                        #####self.state_config, do_unc=True ) )
+                #####except NotImplementedError:
+                    ###### No code!
+                    #####pass
+            #####if len( guesses ) == 1:
+                #####x0 = guesses[0][0] # Effectively, same as usual
+                #####for param, ptype in self.state_config.iteritems():
+                    #####if ptype == CONSTANT:
+                        #####if not x0.has_key ( param ):
+                            #####try:
+                                #####x0[param] = self.operators ['Prior'].mu[param]
+                            #####except KeyError:
+                                #####x0[param] = self.operators ['prior'].mu[param]
+            ######elif len( guesses ) == 2:
+                ######for param, ptype in self.state_config.iteritems():
+                    ######if ptype == CONSTANT:
+                        ######if not x0.has_key ( param ):
+                            ######try:
+                                ######x0[param] = self.operators ['Prior'].mu[param]
+                            ######except KeyError:
+                                ######x0[param] = self.operators ['prior'].mu[param]
+                    ######elif ptype == VARIABLE:
+                        ######if not x0.has_key ( param ):
+                            ######try:
+                                ######x0[param] = self.operators ['Prior'].mu[param]
+                            ######except KeyError:
+                                ######x0[param] = self.operators ['prior'].mu[param]
+                        
+                
+                ####### x0 = (x1*s2 + x2*s1)/(s1+s2)
+                ######x0 = ( guesses[0][0]*guesses[1][1] + \
+                    ######guesses[1][0]*guesses[0][1] ) / \
+                    ######( guesses[0][1] + guesses[1][1] )
+            ######for param, ptype in self.state_config.iteritems():
+                ######if ptype == CONSTANT:
+                    ######if not x0.has_key ( param ):
+                        ######try:
+                            ######x0[param] = self.operators ['Prior'].mu[param]
+                        ######except KeyError:
+                            ######x0[param] = self.operators ['prior'].mu[param]
+                        
+            #####x0 = self.pack_from_dict ( x0, do_transform=False )
+
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
