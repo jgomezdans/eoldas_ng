@@ -51,8 +51,10 @@ class Prior ( object ):
         NOTE that if **transformed variables** are used, the prior needs to be in transformed
         units, not in real units. 
         """
+        
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
+        
     def pack_from_dict ( self, x_dict, state_config ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
@@ -74,7 +76,7 @@ class Prior ( object ):
         return the_vector 
         
                     
-    def first_guess ( self, state_config, n_elems ):
+    def first_guess ( self, state_config, n_elems, do_unc=False ):
         """This method provides a simple way to initialise the optimisation: when called
         with a `state_config` dictionary, it will produce a starting point dictionary that
         can be used for the optimisation. We also need `n_elems`, the number of elements
@@ -82,29 +84,50 @@ class Prior ( object ):
         
         Parameters
         ----------
-        state_config:dict
+        state_config: dict
             A state configuration ordered dictionary
         n_elems: int
             The number of elements for VARIABLE state components
-        
+        do_unc: bool
+            Whether to return the uncertainty
         Returns
         -------
         x0: dict
             A dictionary that can the be used as a starting point for optimisation.
         """
         
-        x0 = dict()
-        for param, typo in state_config.iteritems():
+        # **If** we have a sparse inverse covariance, we need to fish out the
+        # elements of both the prior and the covariance. If not, we just report
+        # things as before
+        
+        if sp.issparse ( self.inv_cov ):
+            raise NotImplementedError( "The prior inverse covariance + " + \
+                "matrix is sparse!" )
             
-            if typo == FIXED: # Default value for all times
-                # Doesn't do anything so we just skip
-                pass        
-            elif typo == CONSTANT: # Constant value for all times
-                x0[param] = self.mu[param]
-            elif typo == VARIABLE:
-                x0[param] = np.ones( n_elems )*self.mu[param]
+            
+        else:    
+            x0 = dict()
+            for param, typo in state_config.iteritems():
                 
-        return x0        
+                if typo == FIXED: # Default value for all times
+                    # Doesn't do anything so we just skip
+                    pass        
+                elif typo == CONSTANT: # Constant value for all times
+                    if do_unc:
+                        x0[param] = self.mu[param]
+                        s0[param] = 1./self.inv_cov[param]
+                    else:
+                        x0[param] = self.mu[param]
+                elif typo == VARIABLE:
+                    if do_unc:
+                        x0[param] = np.ones( n_elems ) * self.mu[param]
+                        s0[param] = np.ones( n_elems ) * 1./self.inv_cov[param]
+                    else:
+                        x0[param] = np.ones( n_elems ) * self.mu[param]
+        if do_unc:
+            return x0, s0
+        else:
+            return x0        
         
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivatives for the prior object.
