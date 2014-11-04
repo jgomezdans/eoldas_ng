@@ -457,7 +457,7 @@ class SpatialSmoother ( object ):
                 n += n_elems
                 n_blocks += 1
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
-        rows, cols = self.nx # Needs checking...
+        nrows, ncols = self.nx # Needs checking...
         jj = 0
         for param, typo in state_config.iteritems():    
             if typo == FIXED: # Default value for all times
@@ -477,30 +477,29 @@ class SpatialSmoother ( object ):
                         sigma_model = self.gamma[param]
                     except:
                         sigma_model = self.gamma
+                    
+                    
+                    d1 = np.ones(nrows*ncols, dtype=np.int8)*2
+                    d1[::nrows] = 1
+                    d1 [(nrows-1)::nrows] = 1
 
-                    # Generate DeltaY
-                    # The first diagonal is defined as...
-                    d1 = np.ones(rows*rows, dtype=np.int8)*2 
-                    d1[::rows] = 1 
-                    d1 [(rows-1)::rows] = 1
                     # The +1 or -1 diagonals are
-                    d2 = -np.ones(rows*rows, dtype=np.int8) 
-                    d2[(rows-1)::rows] = 0
-                    DYsyn = sp.dia_matrix ( (d1,0), shape=(rows*cols, rows*cols)) + \
-                             sp.dia_matrix ( (np.r_[0,d2], 1), shape=(rows*cols, rows*cols)) + \
-                             sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(rows*cols, rows*cols))
-                    DYsparse = scipy.sparse.dia_matrix (DYsyn, dtype=np.float32)
+                    d2 = -np.ones(nrows*ncols, dtype=np.int8)
+                    d2[(nrows-1)::nrows] = 0
 
-                    #Generate DeltaX
-                    # The main diagonal
-                    d1 = 2*np.ones(rows*rows, dtype=np.int8) 
-                    d1[:rows] = 1 
-                    d1[-rows:] = 1
+                    #DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
+                    #DYsparse = sp.dia_matrix (DYsyn, dtype=np.float32)
+                    DYsparse = sp.dia_matrix ( (d1,0), shape=(nrows*ncols, nrows*ncols)) + \
+                        sp.dia_matrix ( (np.r_[0,d2], 1), shape=(nrows*ncols, nrows*ncols)) + \
+                        sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(nrows*ncols, nrows*ncols))
 
+                    d1 = 2*np.ones(nrows*ncols, dtype=np.int8) 
+                    d1[:ncols] = 1
+                    d1[-ncols:] = 1
 
-                    d2 = -1*np.ones(rows*rows, dtype=np.int8)
-                    DXsparse = scipy.sparse.spdiags( [ d1, d2, d2], \
-                        [0, rows, -rows], rows*rows, rows*rows)
+                    d2 = -1*np.ones(nrows*ncols, dtype=np.int8)
+                    DXsparse = sp.spdiags( [ d1, d2, d2], [0,ncols, -ncols], nrows*ncols, ncols*nrows)
+                    
                     # Stuff this particular bit of the Hessian in the complete
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
@@ -1182,7 +1181,7 @@ class ObservationOperatorImageGP ( object ):
         cost, cost_der = self.der_cost ( x_dict, state_config )
         main_diag = self.diag_hess_vect
         h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
-
+        return h
         
         """
         

@@ -289,8 +289,6 @@ class State ( object ):
                             ######x0[param] = self.operators ['prior'].mu[param]
                         
             #####x0 = self.pack_from_dict ( x0, do_transform=False )
-        print "Remember to take me out!!"
-	H = self.do_uncertainty ( x0 )
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
@@ -336,51 +334,39 @@ class State ( object ):
         #this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
                         #self.state_config, self, epsilon=1e-10 )
         
-        for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
-            print "Hessian with epsilon=%e" % epsilon
-            
-            for op_name, the_op in self.operators.iteritems():
-                try:
-                    this_hessian = the_op.der_der_cost ( x, self.state_config, \
-                        self, epsilon=epsilon )
-                except:
-                    this_hessian = the_op.der_der_cost ( x_dict, \
-                        self.state_config, self, epsilon=epsilon )
-                if self.verbose:
-                    print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
-                        op_name )
-                cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
-                    % ( self.output_name, op_name ), 'w'))
-                the_hessian = the_hessian + this_hessian
-            a_sps = sp.csc_matrix( the_hessian )
+        #for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
+            # print "Hessian with epsilon=%e" % epsilon
+        epsilon = 1e-5
+        for op_name, the_op in self.operators.iteritems():
             try:
-                lu_obj = sp.linalg.splu( a_sps )
-            except RuntimeError:
-                # Catch the exception, try a different value of
-                # epsilon
-                continue
-            try:
-                post_cov = lu_obj.solve( np.eye(x.size) )
-                #post_cov = np.linalg.inv ( the_hessian )
-                post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
+                this_hessian = the_op.der_der_cost ( x, self.state_config, \
+                    self, epsilon=epsilon )
             except:
-                continue
-            break
-        try:
-            ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
-            ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
-            ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
-            ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
-        except:
-            retval = {}
-            retval['post_cov'] = None
-            retval['real_ci5pc'] = None
-            retval['real_ci95pc'] = None
-            retval['real_ci25pc'] = None
-            retval['real_ci75pc'] = None
-            retval['post_sigma'] = None
-            print "Could not calculate Hessian!!!"
-            return retval
+                this_hessian = the_op.der_der_cost ( x_dict, \
+                    self.state_config, self, epsilon=epsilon )
+            if self.verbose:
+                print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
+                    op_name )
+            cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
+                % ( self.output_name, op_name ), 'w'))
+            the_hessian = the_hessian + this_hessian
+        a_sps = sp.csc_matrix( the_hessian )
+
+        lu_obj = sp.linalg.splu( a_sps )
+        
+        main_diag = np.zeros_like ( x )
+        for k in xrange(x.size):
+            b = np.zeros_like ( x )
+            b[k] = 1
+            main_diag[k] = lu_obj.solve ( b )[k]
+            
+        post_cov = sp.dia(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
+        post_sigma = np.sqrt ( main_diag ).squeeze()
+        
+        ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
+        ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
+        ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
+        ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
         retval = {}
         retval['post_cov'] = post_cov
         retval['real_ci5pc'] = ci_5
@@ -388,7 +374,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-            
+        
         return retval
         
     def cost ( self, x ):
