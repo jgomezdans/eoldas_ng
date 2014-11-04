@@ -221,18 +221,22 @@ class State ( object ):
         if type(x0) == type ( {} ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
+        elif x0 is None:
+            # No starting point, start from random location?
+            raise NotImplementedError
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
-            x0 = self.operators[x0].first_guess( self.state_config )
-            for param, ptype in self.state_config.iteritems():
-                if ptype == CONSTANT:
-                    if not x0.has_key ( param ):
-                        try:
-                            x0[param] = self.operators ['Prior'].mu[param]
-                        except KeyError:
-                            x0[param] = self.operators ['prior'].mu[param]
+            x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
+            #x0 = self._unpack_to_dict ( x0 )
+            ####for param, ptype in self.state_config.iteritems():
+                ####if ptype == CONSTANT:
+                    ####if not x0.has_key ( param ):
+                        ####try:
+                            ####x0[param] = self.operators ['Prior'].mu[param]
+                        ####except KeyError:
+                            ####x0[param] = self.operators ['prior'].mu[param]
                         
-            x0 = self.pack_from_dict ( x0, do_transform=False )
+            ####x0 = self.pack_from_dict ( x0, do_transform=False )
         #####elif type( x0 ) is list:
             ###### We get one or more operators that provide one with a first guess,
             ###### and hopefully, uncertainty. The idea is to combine these first
@@ -285,7 +289,8 @@ class State ( object ):
                             ######x0[param] = self.operators ['prior'].mu[param]
                         
             #####x0 = self.pack_from_dict ( x0, do_transform=False )
-
+        print "Remember to take me out!!"
+	H = self.do_uncertainty ( x0 )
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
@@ -315,7 +320,6 @@ class State ( object ):
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
             do_invtransform=False )
         if do_unc:
-            import pdb; pdb.set_trace()
             retval_dict.update ( self.do_uncertainty ( r.x ) )
         if self.verbose:
             print "Saving results to %s" % self.output_name

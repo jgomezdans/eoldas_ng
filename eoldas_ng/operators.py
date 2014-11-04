@@ -101,8 +101,9 @@ class Prior ( object ):
         # things as before
         
         if sp.issparse ( self.inv_cov ):
-            raise NotImplementedError( "The prior inverse covariance + " + \
-                "matrix is sparse!" )
+            #raise NotImplementedError( "The prior inverse covariance + " + \
+                #"matrix is sparse!" )
+            return self.mu
             
             
         else:    
@@ -1039,6 +1040,9 @@ class ObservationOperatorImageGP ( object ):
         # observations size
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nx_state * self.ny_state ) )
+	# Define a 2D array same size as the_derivatives to store the main diagonal
+	# Hessian (linear approximation term)
+	diag_hessian = np.zeros_like ( the_derivatives )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -1065,6 +1069,7 @@ class ObservationOperatorImageGP ( object ):
         else:
             zmask = self.mask
         self.obs_op_grad = []
+        
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
@@ -1106,27 +1111,80 @@ class ObservationOperatorImageGP ( object ):
                 ####(( fwd_model[:] - \
                 ####self.observations[band, self.mask] ) \
                 ####/self.bu[band]**2)[:, None]).T
-
+	      
+	    diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
         
         j = 0
+        self.diag_hess_vect = np.zeros_like ( der_cost )
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, 0]
+                der_cost[j] = the_derivatives[i, :].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
-        
+        self.gradient = der_cost # Store the gradient, we might need it later
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
         """Numerical approximation to the Hessian"""
-        """NOTE The likelihood hessian is given by
-        J''(x) = H'(x)^{T}C_{obs}^{T}H'(x) - H''(x)C_{obs}^{-1}(R - H(x))
-        This means that we need both the linear first order approximation, but
-        also the Hessian code, and the misfit. All in all, a pain in the arse
-        to estimate"""
+           
+        """
+        J''(x) = H'(x)^{T}C_{obs}^{T}H'(x) - H''(x)^{T}C_{obs}^{-1}(R - H(x))
+
+        So the Hessian is made up of two terms: a first term which is the typically
+        calculated linear approximation, made up of the gradient/jacobian, and a
+        second term that we can see as a correction for non-linearities. This  
+        second term requires the Hessian of the observation operator, as well as
+        the misfit of observations and forward model
+
+        
+        The first term (linear approximation)
+        ----------------------------------------------------
+        
+        This term is given by H'CH. Annoyingly, in Python, if H is a vector, and
+        C is a matrix, this can be achieved by (H*C).T*H (it returns a matrix).
+        In sparse terms, only C is sparse here (typically diagonal, or not too
+        far off), so we have (H.dot(C)).T.dot(H)
+        
+        The obvious complications are to do with making sure the elements of H
+        and C are consistent.
+        
+        1.- Run der_cost(x ) to make sure self.gradient is current and relates to 
+        x
+        2.- 
+        
+        The second term
+        ----------------------------------
+        
+        This second is slightly more complicated. We need H'', the actual Hessian
+        of the ObsOp. This we get from the emulators directly, but note that the
+        emulator method returns **ALL** the input parameters (ie if you are only
+        bothered about LAI, you still get the Hessian terms for all the other~10
+        parameters), so some cleaning up of H'' is required. Further, we expect
+        H'' to be sparse (only non-zero elements in the locations where 
+        observations are available). 
+
+        I have a problem visualising how this part of the equation works: if H''
+        is a matrix and C_obs is a matrix, then the second term is a vector (the
+        residuals is just a vector transformed by the product of two matrices). 
+        Clearly, it must be a matrix, otherwise the sum in the original equation
+        does not make sense.
+        """
+        N = x.size
+        
+        
+        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+
+        cost, cost_der = self.der_cost ( x_dict, state_config )
+        main_diag = self.diag_hess_vect
+        h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
+
+        
+        """
         
         N = x.size
         
@@ -1209,3 +1267,4 @@ class ObservationOperatorImageGP ( object ):
             ##h[i,:] = (df_1 - df_0)/epsilon
             ##x[i] = xx0
         ##return sp.lil_matrix ( h )
+"""
