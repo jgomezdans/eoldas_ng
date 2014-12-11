@@ -12,7 +12,7 @@ eoldas_ng
    :align: right
    
 .. image:: http://www.esa.int/esalogo/images/logotype/img_colorlogo_darkblue.gif
-   :scale: 30 %
+   :scale: 20 %
    :alt: ESA logo
    :align: left
    
