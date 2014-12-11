@@ -360,7 +360,7 @@ class State ( object ):
             b[k] = 1
             main_diag[k] = lu_obj.solve ( b )[k]
             
-        post_cov = sp.dia(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
+        post_cov = sp.dia_matrix(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
         post_sigma = np.sqrt ( main_diag ).squeeze()
         
         ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
@@ -395,8 +395,9 @@ class State ( object ):
              aggr_der_cost = aggr_der_cost + der_cost
              self.cost_components[op_name] = der_cost
              if self.verbose:
-                 print "\t%s %f" % ( op_name, cost )
+                 print "\t%s %8.3e" % ( op_name, cost )
          self.the_cost = aggr_cost
+         print "Total cost: %%8.3e" % aggr_cost
          
          if self.verbose:
              print 'Elapsed: %.2f seconds' % (time.time() - start_time)

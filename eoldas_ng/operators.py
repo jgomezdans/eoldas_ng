@@ -354,7 +354,7 @@ class TemporalSmoother ( object ):
                 n_elems = x[param].size
                 n += n_elems
         
-        h = sp.lil ( (n ,n ) )
+        h = sp.lil_matrix ( (n ,n ) )
         i = 0
         isel_param = 0
         for param, typo in state_config.iteritems():
@@ -805,7 +805,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
                 xs = x_params[:, itime]*1
-                dummy, df_0 = self.calc_mismatch ( this_obsop, \
+                dummy, df_0, dummy_fwd = self.calc_mismatch ( this_obsop, \
                     xs, this_obs, self.bu, *this_extra )
                 iloc = 0
                 iiloc = 0
@@ -814,7 +814,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                         continue                    
                     xxs = xs[i]*1
                     xs[i] += epsilon
-                    dummy, df_1 = self.calc_mismatch ( this_obsop, \
+                    dummy, df_1, dummy_fwd = self.calc_mismatch ( this_obsop, \
                         xs, this_obs, self.bu, *this_extra )                    # Calculate d2f/d2x
                     hs =  (df_1 - df_0)/epsilon
                     if fin_diff == 2: # CONSTANT
