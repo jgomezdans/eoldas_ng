@@ -47,7 +47,8 @@ class State ( object ):
        just prescribe some default value."""
        
     def __init__ ( self, state_config, state_grid, default_values, \
-            parameter_min, parameter_max, output_name=None, verbose=False ):
+            parameter_min, parameter_max, optmisation_options=None, \
+            output_name=None, verbose=False ):
         """State constructor
         
         
@@ -67,6 +68,12 @@ class State ( object ):
                 self.parameter_max[param] ] )
         self.invtransformation_dict = {}
         self.transformation_dict = {}
+        if optimisation_options is None:
+            self.optimisation_options = {"factr": 1000, \
+                "m":400, "pgtol":1e-12, "maxcor":200, \
+                "maxiter":1500, "disp":True }
+        else:
+            self.optimisation_options = optimisation_options
         if output_name is None:
             tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
             tag += platform.node()
@@ -295,8 +302,7 @@ class State ( object ):
 #            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
 #                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+                jac=True, bounds=the_bounds, options=self.optimisation_options)
             end_time = time.time()
             if self.verbose:
                 if r.success:
@@ -311,8 +317,7 @@ class State ( object ):
                 print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
         else:
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
-                "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
+                jac=True, bounds=the_bounds, options=self.optimisation_options )
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
@@ -397,9 +402,12 @@ class State ( object ):
              if self.verbose:
                  print "\t%s %8.3e" % ( op_name, cost )
          self.the_cost = aggr_cost
-         print "Total cost: %%8.3e" % aggr_cost
+
+
          
          if self.verbose:
+             print "Total cost: %8.3e" % aggr_cost
              print 'Elapsed: %.2f seconds' % (time.time() - start_time)
+             
              
          return aggr_cost, aggr_der_cost
