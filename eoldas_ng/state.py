@@ -47,7 +47,7 @@ class State ( object ):
        just prescribe some default value."""
        
     def __init__ ( self, state_config, state_grid, default_values, \
-            parameter_min, parameter_max, optmisation_options=None, \
+            parameter_min, parameter_max, optimisation_options=None, \
             output_name=None, verbose=False ):
         """State constructor
         
