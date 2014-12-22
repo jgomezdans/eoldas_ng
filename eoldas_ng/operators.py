@@ -51,8 +51,10 @@ class Prior ( object ):
         NOTE that if **transformed variables** are used, the prior needs to be in transformed
         units, not in real units. 
         """
+        
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
+        
     def pack_from_dict ( self, x_dict, state_config ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
@@ -74,7 +76,7 @@ class Prior ( object ):
         return the_vector 
         
                     
-    def first_guess ( self, state_config, n_elems ):
+    def first_guess ( self, state_config, n_elems, do_unc=False ):
         """This method provides a simple way to initialise the optimisation: when called
         with a `state_config` dictionary, it will produce a starting point dictionary that
         can be used for the optimisation. We also need `n_elems`, the number of elements
@@ -82,29 +84,51 @@ class Prior ( object ):
         
         Parameters
         ----------
-        state_config:dict
+        state_config: dict
             A state configuration ordered dictionary
         n_elems: int
             The number of elements for VARIABLE state components
-        
+        do_unc: bool
+            Whether to return the uncertainty
         Returns
         -------
         x0: dict
             A dictionary that can the be used as a starting point for optimisation.
         """
         
-        x0 = dict()
-        for param, typo in state_config.iteritems():
+        # **If** we have a sparse inverse covariance, we need to fish out the
+        # elements of both the prior and the covariance. If not, we just report
+        # things as before
+        
+        if sp.issparse ( self.inv_cov ):
+            #raise NotImplementedError( "The prior inverse covariance + " + \
+                #"matrix is sparse!" )
+            return self.mu
             
-            if typo == FIXED: # Default value for all times
-                # Doesn't do anything so we just skip
-                pass        
-            elif typo == CONSTANT: # Constant value for all times
-                x0[param] = self.mu[param]
-            elif typo == VARIABLE:
-                x0[param] = np.ones( n_elems )*self.mu[param]
+            
+        else:    
+            x0 = dict()
+            for param, typo in state_config.iteritems():
                 
-        return x0        
+                if typo == FIXED: # Default value for all times
+                    # Doesn't do anything so we just skip
+                    pass        
+                elif typo == CONSTANT: # Constant value for all times
+                    if do_unc:
+                        x0[param] = self.mu[param]
+                        s0[param] = 1./self.inv_cov[param]
+                    else:
+                        x0[param] = self.mu[param]
+                elif typo == VARIABLE:
+                    if do_unc:
+                        x0[param] = np.ones( n_elems ) * self.mu[param]
+                        s0[param] = np.ones( n_elems ) * 1./self.inv_cov[param]
+                    else:
+                        x0[param] = np.ones( n_elems ) * self.mu[param]
+        if do_unc:
+            return x0, s0
+        else:
+            return x0        
         
     def der_cost ( self, x_dict, state_config ):
         """Calculate the cost function and its partial derivatives for the prior object.
@@ -142,6 +166,7 @@ class Prior ( object ):
         # The next loop calculates the cost and associated partial derivatives
         # Mainly based on the parameter type
         i = 0 # Loop variable
+        
         for param, typo in state_config.iteritems():
             if typo == FIXED: 
                 # Doesn't do anything so we just skip
@@ -329,7 +354,7 @@ class TemporalSmoother ( object ):
                 n_elems = x[param].size
                 n += n_elems
         
-        h = sp.lil ( (n ,n ) )
+        h = sp.lil_matrix ( (n ,n ) )
         i = 0
         isel_param = 0
         for param, typo in state_config.iteritems():
@@ -432,7 +457,7 @@ class SpatialSmoother ( object ):
                 n += n_elems
                 n_blocks += 1
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
-        rows, cols = self.nx # Needs checking...
+        nrows, ncols = self.nx # Needs checking...
         jj = 0
         for param, typo in state_config.iteritems():    
             if typo == FIXED: # Default value for all times
@@ -452,30 +477,29 @@ class SpatialSmoother ( object ):
                         sigma_model = self.gamma[param]
                     except:
                         sigma_model = self.gamma
+                    
+                    
+                    d1 = np.ones(nrows*ncols, dtype=np.int8)*2
+                    d1[::nrows] = 1
+                    d1 [(nrows-1)::nrows] = 1
 
-                    # Generate DeltaY
-                    # The first diagonal is defined as...
-                    d1 = np.ones(rows*rows, dtype=np.int8)*2 
-                    d1[::rows] = 1 
-                    d1 [(rows-1)::rows] = 1
                     # The +1 or -1 diagonals are
-                    d2 = -np.ones(rows*rows, dtype=np.int8) 
-                    d2[(rows-1)::rows] = 0
-                    DYsyn = sp.dia_matrix ( (d1,0), shape=(rows*cols, rows*cols)) + \
-                             sp.dia_matrix ( (np.r_[0,d2], 1), shape=(rows*cols, rows*cols)) + \
-                             sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(rows*cols, rows*cols))
-                    DYsparse = scipy.sparse.dia_matrix (DYsyn, dtype=np.float32)
+                    d2 = -np.ones(nrows*ncols, dtype=np.int8)
+                    d2[(nrows-1)::nrows] = 0
 
-                    #Generate DeltaX
-                    # The main diagonal
-                    d1 = 2*np.ones(rows*rows, dtype=np.int8) 
-                    d1[:rows] = 1 
-                    d1[-rows:] = 1
+                    #DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
+                    #DYsparse = sp.dia_matrix (DYsyn, dtype=np.float32)
+                    DYsparse = sp.dia_matrix ( (d1,0), shape=(nrows*ncols, nrows*ncols)) + \
+                        sp.dia_matrix ( (np.r_[0,d2], 1), shape=(nrows*ncols, nrows*ncols)) + \
+                        sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(nrows*ncols, nrows*ncols))
 
+                    d1 = 2*np.ones(nrows*ncols, dtype=np.int8) 
+                    d1[:ncols] = 1
+                    d1[-ncols:] = 1
 
-                    d2 = -1*np.ones(rows*rows, dtype=np.int8)
-                    DXsparse = scipy.sparse.spdiags( [ d1, d2, d2], \
-                        [0, rows, -rows], rows*rows, rows*rows)
+                    d2 = -1*np.ones(nrows*ncols, dtype=np.int8)
+                    DXsparse = sp.spdiags( [ d1, d2, d2], [0,ncols, -ncols], nrows*ncols, ncols*nrows)
+                    
                     # Stuff this particular bit of the Hessian in the complete
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
@@ -579,7 +603,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_obs, self.n_bands = self.observations.shape
+            self.n_bands, self.n_obs = self.observations.shape
         except:
             raise ValueError, "Typically, obs should be (n_obs, n_bands)"
         self.mask = mask
@@ -781,7 +805,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
                 xs = x_params[:, itime]*1
-                dummy, df_0 = self.calc_mismatch ( this_obsop, \
+                dummy, df_0, dummy_fwd = self.calc_mismatch ( this_obsop, \
                     xs, this_obs, self.bu, *this_extra )
                 iloc = 0
                 iiloc = 0
@@ -790,7 +814,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                         continue                    
                     xxs = xs[i]*1
                     xs[i] += epsilon
-                    dummy, df_1 = self.calc_mismatch ( this_obsop, \
+                    dummy, df_1, dummy_fwd = self.calc_mismatch ( this_obsop, \
                         xs, this_obs, self.bu, *this_extra )                    # Calculate d2f/d2x
                     hs =  (df_1 - df_0)/epsilon
                     if fin_diff == 2: # CONSTANT
@@ -858,7 +882,7 @@ class ObservationOperatorImageGP ( object ):
         self.factor = factor
         self.fwd_modelled_obs = np.zeros_like ( self.observations )
 
-    def first_guess ( self, state_config ):
+    def first_guess ( self, state_config, do_unc=False ):
         """
         A method to provide a first guess of the state. The idea here is to take the GPs, 
         and recast them, so that rather than provide an emulator, they provide a regressor
@@ -868,12 +892,26 @@ class ObservationOperatorImageGP ( object ):
         gps = create_inverse_emulators ( self.original_emulators, \
             self.band_pass, state_config )
 
+        if do_unc:
+            s0 = dict()
         x0 = dict()        
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
-            x0[param][self.mask.flatten()] = gp.predict( self.observations[:, self.mask].T )[0]
+            if do_unc:
+                s0[param] = np.zeros_like( self.observations[0,:, :].flatten())
+            xsol = gp.predict( self.observations[:, self.mask].T, do_unc=False )
+            x0[param][self.mask.flatten()] = xsol[0]
+            if do_unc:
+                # for the pixels where we have observations, we can use the GP
+                # uncertainty directly. For the one where we don't, we can use
+                # the maximum uncertainty. Maybe this is even too confident!
+                s0[param][self.mask.faltten()] = xsol[1]
+                s0[param][~self.mask.flatten()] = s0[param][self.mask.flatten()].max()
             x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
-        return x0
+        if do_unc:
+            return x0, s0
+        else:
+            return x0
 
     def predict_observations ( self, x_dict, state_config ):
         """
@@ -941,8 +979,8 @@ class ObservationOperatorImageGP ( object ):
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
-            fwd_model, emu_err, partial_derv = \
-                self.emulators[band].predict ( x_params[:, :].T )
+            fwd_model, partial_derv = \
+                self.emulators[band].predict ( x_params[:, :].T, do_unc=False )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1001,6 +1039,9 @@ class ObservationOperatorImageGP ( object ):
         # observations size
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nx_state * self.ny_state ) )
+	# Define a 2D array same size as the_derivatives to store the main diagonal
+	# Hessian (linear approximation term)
+	diag_hessian = np.zeros_like ( the_derivatives )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -1026,14 +1067,16 @@ class ObservationOperatorImageGP ( object ):
                 ).astype ( np.bool )
         else:
             zmask = self.mask
-
+        self.obs_op_grad = []
+        
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
-            fwd_model, emu_err, partial_derv = \
-                self.emulators[band].predict ( x_params[:, zmask.flatten()].T )
+            fwd_model,  partial_derv = \
+                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
+            self.obs_op_grad.append ( partial_derv )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1067,32 +1110,160 @@ class ObservationOperatorImageGP ( object ):
                 ####(( fwd_model[:] - \
                 ####self.observations[band, self.mask] ) \
                 ####/self.bu[band]**2)[:, None]).T
-
+	      
+	    diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
         
         j = 0
+        self.diag_hess_vect = np.zeros_like ( der_cost )
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, 0]
+                der_cost[j] = the_derivatives[i, :].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
-        
+        self.gradient = der_cost # Store the gradient, we might need it later
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
         """Numerical approximation to the Hessian"""
+           
+        """
+        J''(x) = H'(x)^{T}C_{obs}^{T}H'(x) - H''(x)^{T}C_{obs}^{-1}(R - H(x))
 
+        So the Hessian is made up of two terms: a first term which is the typically
+        calculated linear approximation, made up of the gradient/jacobian, and a
+        second term that we can see as a correction for non-linearities. This  
+        second term requires the Hessian of the observation operator, as well as
+        the misfit of observations and forward model
+
+        
+        The first term (linear approximation)
+        ----------------------------------------------------
+        
+        This term is given by H'CH. Annoyingly, in Python, if H is a vector, and
+        C is a matrix, this can be achieved by (H*C).T*H (it returns a matrix).
+        In sparse terms, only C is sparse here (typically diagonal, or not too
+        far off), so we have (H.dot(C)).T.dot(H)
+        
+        The obvious complications are to do with making sure the elements of H
+        and C are consistent.
+        
+        1.- Run der_cost(x ) to make sure self.gradient is current and relates to 
+        x
+        2.- 
+        
+        The second term
+        ----------------------------------
+        
+        This second is slightly more complicated. We need H'', the actual Hessian
+        of the ObsOp. This we get from the emulators directly, but note that the
+        emulator method returns **ALL** the input parameters (ie if you are only
+        bothered about LAI, you still get the Hessian terms for all the other~10
+        parameters), so some cleaning up of H'' is required. Further, we expect
+        H'' to be sparse (only non-zero elements in the locations where 
+        observations are available). 
+
+        I have a problem visualising how this part of the equation works: if H''
+        is a matrix and C_obs is a matrix, then the second term is a vector (the
+        residuals is just a vector transformed by the product of two matrices). 
+        Clearly, it must be a matrix, otherwise the sum in the original equation
+        does not make sense.
+        """
         N = x.size
-        h = np.zeros((N,N))
+        
+        
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-        df_0 = self.der_cost ( x_dict, state_config )[1]
-        for i in xrange(N):
-            xx0 = 1.*x[i]
-            x[i] = xx0 + epsilon
-            x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-            df_1 = self.der_cost ( x_dict, state_config )[1]
-            h[i,:] = (df_1 - df_0)/epsilon
-            x[i] = xx0
-        return sp.lil_matrix ( h )
+
+        cost, cost_der = self.der_cost ( x_dict, state_config )
+        main_diag = self.diag_hess_vect
+        h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
+        return h
+        
+        """
+        
+        N = x.size
+        
+        h = sp.lil_matrix ( ( N, N ), dtype=np.float32 )
+        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+        
+        # We need the gradient of the observation operator. This is stored as
+        # a list in the object, convert it to an array
+        jacobian = np.array ( self.obs_op_grad )
+        # The jacobian is Nbands, Nx*Ny, Nparams
+        ## Here we need to do the linear bit of the matrix
+        ## this means re-arranging the jacobian per observation
+        
+        i_unmasked = 0
+        n_grid = self.nx*self.ny # The grid size
+        n_obs = self.mask.flatten().sum() # The number of grid points with
+                                          # observations availabl
+        ###TODO define select pars, the selected parameters
+        ###TODO Need to cope with CONSTANT parameters too
+        # Now, loop over all pixels...
+        n_pars = jacobian.shape[-1] # Number of parameters
+        # Location of the parameters we'll be using. Note that this includes
+        # both CONSTANT and VARIABLE parameters!
+        sel_pars = [ i \
+            for ( i, (k,v)) in enumerate ( state_config.iteritems() ) if v > 1 ]
+        sel_pars = np.array ( sel_pars )
+        for ipxl in xrange ( n_grid  ):
+            if self.mask.flatten()[ipxl]:
+                # This pixel isn't masked out...
+                # Start by just selecting the jacobian parameters
+                #############################################################
+                ## THIS IS OVERCOMPLICATED, NEED TO CALL THE GP DIRECTLY
+                ## and use that information here
+                #############################################################
+                Hs = np.zeros ( ( len(sel_pars), len(sel_pars) ))
+                for b in xrange ( self.n_bands):
+                    # Need to check that jacobian is Nbands, Nx*Ny, Npars
+                    jac = jacobian [ b, ipxl, sel_pars] 
+                        
+                #############################################################
+                ## The different resolution effect needs to be taken here
+                #############################################################
+                    #Hs = np.matrix ( jac ).T * np.matrix( \
+                        #np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) * \
+                        #np.matrix(jac)
+                    C = np.matrix( \
+                        np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) 
+                    Hs += (np.matrix(jac).T*np.matrix(jac))*C
+
+                # At this point, we have calcualted H'(x)C^{-1}H(x) for this
+                # location in the grid, and need to place it in the right
+                # place in the output Hessian
+                for i in sel_pars:
+                    for j in sel_pars: 
+                        h [ i*n_grid + ipxl, j*n_grid + ipxl ] = Hs [ i, j ]
+        # So this is the first approximation to the Hessian, bar the above todos
+        return h # linear_approx
+        
+        
+        
+        
+        
+        #### This next bit is the calculation of (R-H(x))
+        ##err = np.zeros_like ( self.observations )
+        ##for band in xrange ( self.n_bands ):
+            ##err[band, self.mask] = (  self.observations[band, self.mask] - \
+                ##self.fwd_modelled_obs[band, self.mask] )
+            
+       
+        
+        ##########################################################################
+        #### Numerical hessian code stuff                                       ##
+        ##########################################################################
+        ##df_0 = self.der_cost ( x_dict, state_config )[1]
+        ##for i in xrange(N):
+            ##xx0 = 1.*x[i]
+            ##x[i] = xx0 + epsilon
+            ##x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+            ##df_1 = self.der_cost ( x_dict, state_config )[1]
+            ##h[i,:] = (df_1 - df_0)/epsilon
+            ##x[i] = xx0
+        ##return sp.lil_matrix ( h )
+"""
