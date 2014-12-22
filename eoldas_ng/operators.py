@@ -1408,6 +1408,70 @@ class ObservationOperatorImageGP_Parallel ( ObservationOperatorImageGP ):
                     ####/self.bu[band]**2)[:, None]).T
                 
                 diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
+        else:
+            # We have potentially craploads of cores, so we just operate the
+            # the GPs "one at a time" on the large state space. 
+            self.cluster.push ( {"X": x_params[:, zmask.flatten()].T })
+            for band in xrange( self.n_bands ):
+                self.cluster.push ( {"gp": self.emulators[band] } )
+                def emulate ( i ):
+                    
+                    start = i*step
+                    if step*(i+1) >= X.shape[1]:
+                        end = X.shape[1]
+                    else:
+                        end = step*(i+1)
+                    return gp.predict ( X[start:end, :], do_unc=False )
+                # We now calculate the split in chunks of size of array/ncores
+                N_cores = len ( self.cluster )
+                N_pix = zmask.flatten().sum()
+                chunk_size = N_pix/N_cores
+                Y = self.cluster.map ( emulate, range( N_cores ) )
+                fwd_model, partial_derv = Y[band]
+                # So fwd_model is of size zmask.flatten().sum()
+                # partial derv is ( zmask.flatten().sum(), x_params.shape[0] )right?
+                fwd_model = np.zeros ( N_pix )
+                partial_derv = np.zeros ( ( N_pix, x_params.shape[0] ) )
+                for i in xrange ( N_cores ):
+                    fwd_model[ (i*chunk_size):((i+1)*chunk_size)] = Y[i][0]
+                    partial_derv[ (i*chunk_size):((i+1)*chunk_size), :] = Y[i][1]
+                self.obs_op_grad.append ( partial_derv )
+                if self.factor is not None:
+                    # Multi-resolution! Need to integrate over the low resolution
+                    # footprint using downsample in `eoldas_utils`
+                    fwd_model = downsample ( fwd_model.reshape( \
+                        self.state_grid.shape), self.factor[0], \
+                        self.factor[1] ).flatten()
+                # Now calculate the cost increase due to this band...
+                err = ( fwd_model - self.observations[band, self.mask] )
+                self.fwd_modelled_obs[band, self.mask] = fwd_model
+                cost += np.sum(0.5 * err**2/self.bu[band]**2 )
+                # And update the partial derivatives
+                #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
+                    #(( fwd_model[self.mask.flatten()] - \
+                    #self.observations[band, self.mask] ) \
+                    #/self.bu[band]**2)[:, None]).T
+                
+                # TODO there's a mismatch of sizes. The derivatives are in state
+                # grid, not in observation grid. So we need to "zoom" the second
+                # line of the following expression (fwd_model - obs) to be the
+                # same shape as the derivatives
+                # TODO also note how we cope with data gaps here, as the mask also
+                # appears on the RHS of the expression. Do I also need a zoomed
+                # version of the mask?
+                if self.factor is not None:
+                    err = zoom ( err.reshape((self.nx, self.ny)), \
+                        self.factor, order=0, mode="nearest" ).flatten()
+    
+                the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
+                    (err/self.bu[band]**2)[:, None]).T
+                ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
+                    ####(( fwd_model[:] - \
+                    ####self.observations[band, self.mask] ) \
+                    ####/self.bu[band]**2)[:, None]).T
+                
+                diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
+                
             
         j = 0
         self.diag_hess_vect = np.zeros_like ( der_cost )
