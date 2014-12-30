@@ -21,8 +21,10 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (29.12.2014)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+import numpy as np
+import time
+
 from collections import OrderedDict
-from operators import *
 from state import State
 
 class StandardStatePROSAIL ( State ):
