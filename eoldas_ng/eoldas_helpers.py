@@ -14,6 +14,17 @@ Potentially, there will be other classes like these two. These two classes
 simplify the usage of two standard RT models in defining the state. This means
 that they'll provide parameter boundaries and standard transformations.
 
+``CrossValidation``
+---------------------
+
+A simple cross-validation framework for models that have a ``gamma`` term. Done
+by 
+
+``SequentialVariational``
+---------------------------
+
+The world-famous sequential variational approach to big state space assimilation.
+
 
 """
 
@@ -125,4 +136,43 @@ class StandardStateSEMIDISCRETE ( State ):
 
 class CrossValidation ( object ):
     """A crossvalidation class for eoldas_ng"""
-    pass
+    def __init__ ( self, state ):
+        """The crossvalidation only requires the state object. This will have a
+        dictionary that stores the different elements of the cost function.
+        """
+        self.state = state
+        # In the next loop, we iterate over the defined operators, and store the
+        # regularisation operator, as well as those having observations.
+        self.observation_operators = []
+        for op in state.operatrors.iterkeys():
+            if getattr ( state.operators[op], 'gamma' ):
+                self.regularisation_operator = op
+            elif getattr ( state.operators[op], 'observations' ):
+                self.observation_operators.append ( op )
+    
+    def _create_xval_mask ( self, fraction ):
+        self.original_mask = []
+        for op in self.observation_operators:
+            # This is for a 2D mask... 1D time masks should be similar
+            # We start by storing the original mask. Remember to copy...
+            self.original_mask[op] = self.state.operators[op].mask*1. # Copy the mask
+            # For 2D masks, we look for the good pixel locations
+            nnz = np.nonzero ( self.original_mask[op] )
+            # This is the number of good pixels
+            N = len ( nnz[0] )
+            # We select a random fraction of these pixels
+            passers = np.random.choice ( np.arange( N ), N*fraction )
+            # In the original object, we flip the Trues to False...
+            self.state.operators[op].mask[nnz[0][passers], nnz[1][passers]] = False
+            
+
+    def do_crossval ( gamma_range = None ):
+        """Run the crossvalidation. If you don't specify a range of gammas, we'll
+        set up one by default. You've been warned...."""
+        gamma_range = np.logspace ( -3, 8, 10 )
+        for g in gamma_range:
+            self.state.operatrors[self.regularisation_operator].gamma = g
+            retval = self.state.solve () # probably needs a starting point?
+            # In here, we should ensure that we forward model the entire dataset
+            # Calculate some sort of mismatch metric...
+        
