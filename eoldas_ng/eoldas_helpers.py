@@ -23,7 +23,7 @@ __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
 from operators import *
-from state import state
+from state import State
 
 class StandardStatePROSAIL ( State ):
     """A standard state configuration for the PROSAIL model"""
