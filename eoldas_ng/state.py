@@ -47,7 +47,7 @@ class State ( object ):
        just prescribe some default value."""
        
     def __init__ ( self, state_config, state_grid, default_values, \
-            parameter_min, parameter_max, output_name=False, verbose=False ):
+            parameter_min, parameter_max, output_name=None, verbose=False ):
         """State constructor
         
         
@@ -217,19 +217,78 @@ class State ( object ):
         
         """Optimise the state starting from a first guess `x0`"""
         start_time = time.clock()
+        
         if type(x0) == type ( {} ):
+            # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
+        elif x0 is None:
+            # No starting point, start from random location?
+            raise NotImplementedError
         elif type( x0 ) is str:
-            x0 = self.operators[x0].first_guess( self.state_config )
-            for param, ptype in self.state_config.iteritems():
-                if ptype == CONSTANT:
-                    if not x0.has_key ( param ):
-                        try:
-                            x0[param] = self.operators ['Prior'].mu[param]
-                        except KeyError:
-                            x0[param] = self.operators ['prior'].mu[param]
+            # Use a single operator that has a ``first_guess`` method
+            x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
+            #x0 = self._unpack_to_dict ( x0 )
+            ####for param, ptype in self.state_config.iteritems():
+                ####if ptype == CONSTANT:
+                    ####if not x0.has_key ( param ):
+                        ####try:
+                            ####x0[param] = self.operators ['Prior'].mu[param]
+                        ####except KeyError:
+                            ####x0[param] = self.operators ['prior'].mu[param]
                         
-            x0 = self.pack_from_dict ( x0, do_transform=False )
+            ####x0 = self.pack_from_dict ( x0, do_transform=False )
+        #####elif type( x0 ) is list:
+            ###### We get one or more operators that provide one with a first guess,
+            ###### and hopefully, uncertainty. The idea is to combine these first
+            ###### guess estimates
+            #####guesses = []
+            ###### We loop over the operators we wish to use, and we pass the do_unc
+            ###### keyword so that they return a mean + uncertainty
+            #####for op in x0:
+                #####try:
+                    #####guesses.append ( self.operators[x0].first_guess( \
+                        #####self.state_config, do_unc=True ) )
+                #####except NotImplementedError:
+                    ###### No code!
+                    #####pass
+            #####if len( guesses ) == 1:
+                #####x0 = guesses[0][0] # Effectively, same as usual
+                #####for param, ptype in self.state_config.iteritems():
+                    #####if ptype == CONSTANT:
+                        #####if not x0.has_key ( param ):
+                            #####try:
+                                #####x0[param] = self.operators ['Prior'].mu[param]
+                            #####except KeyError:
+                                #####x0[param] = self.operators ['prior'].mu[param]
+            ######elif len( guesses ) == 2:
+                ######for param, ptype in self.state_config.iteritems():
+                    ######if ptype == CONSTANT:
+                        ######if not x0.has_key ( param ):
+                            ######try:
+                                ######x0[param] = self.operators ['Prior'].mu[param]
+                            ######except KeyError:
+                                ######x0[param] = self.operators ['prior'].mu[param]
+                    ######elif ptype == VARIABLE:
+                        ######if not x0.has_key ( param ):
+                            ######try:
+                                ######x0[param] = self.operators ['Prior'].mu[param]
+                            ######except KeyError:
+                                ######x0[param] = self.operators ['prior'].mu[param]
+                        
+                
+                ####### x0 = (x1*s2 + x2*s1)/(s1+s2)
+                ######x0 = ( guesses[0][0]*guesses[1][1] + \
+                    ######guesses[1][0]*guesses[0][1] ) / \
+                    ######( guesses[0][1] + guesses[1][1] )
+            ######for param, ptype in self.state_config.iteritems():
+                ######if ptype == CONSTANT:
+                    ######if not x0.has_key ( param ):
+                        ######try:
+                            ######x0[param] = self.operators ['Prior'].mu[param]
+                        ######except KeyError:
+                            ######x0[param] = self.operators ['prior'].mu[param]
+                        
+            #####x0 = self.pack_from_dict ( x0, do_transform=False )
         if bounds is None:
             the_bounds = self._get_bounds_list()
             
@@ -238,7 +297,7 @@ class State ( object ):
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
                 "gtol":1e-15, "maxcor":200, "maxiter":1500, "disp":True })
-            end_time = time.clock()
+            end_time = time.time()
             if self.verbose:
                 if r.success:
                     print "Minimisation was successful: %d \n%s" % \
@@ -249,7 +308,7 @@ class State ( object ):
                 print "Number of iterations: %d" % r.nit
                 print "Number of function evaluations: %d " % r.nfev
                 print "Value of the function @ minimum: %e" % r.fun
-                print "Total optimisation time: %d (sec)" % ( end_time - start_time )
+                print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
         else:
             r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options={"ftol": 1e-3, \
@@ -270,66 +329,44 @@ class State ( object ):
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
-        for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
-            print "Hessian with epsilon=%e" % epsilon
-            
-            for op_name, the_op in self.operators.iteritems():
-                try:
-                    this_hessian = the_op.der_der_cost ( x, self.state_config, \
-                        self, epsilon=epsilon )
-                except:
-                    this_hessian = the_op.der_der_cost ( x_dict, \
-                        self.state_config, self, epsilon=epsilon )
-                if self.verbose:
-                    print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
-                        op_name )
-                cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
-                    % ( self.output_name, op_name ), 'w'))
-                the_hessian = the_hessian + this_hessian
-            a_sps = sp.csc_matrix( the_hessian )
-            
+        #cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
+            #self.state_config )
+        #this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
+                        #self.state_config, self, epsilon=1e-10 )
+        
+        #for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
+            # print "Hessian with epsilon=%e" % epsilon
+        epsilon = 1e-5
+        for op_name, the_op in self.operators.iteritems():
             try:
-                lu_obj = sp.linalg.splu( a_sps )
-            except RuntimeError:
-                # Catch the exception, try a different value of
-                # epsilon
-                continue
-            try:
-                # post_cov isn't sparse... :(
-                print "Inverting Hessian..."
-                if x.size > 1e5:
-                    post_cov = sp.lil_matrix ( (x.size, x.size) )
-
-                    for k in xrange( x.size ) :
-                        b = np.zeros((x.size,))
-                        b[k] = 1
-                        this_row = lu_obj.solve(b)
-                        ilocs = np.where ( np.abs(this_row) >= 1e-6 )[0]
-                        post_cov[ilocs, k] = this_row[ilocs, None]
-                else:
-                    post_cov = sp.lil_matrix ( lu_obj.solve( np.eye(x.size) ) )
-                #post_cov = np.linalg.inv ( the_hessian )
-                print "... Inverted!!! Phew!!"
-                post_sigma = np.sqrt ( post_cov.diagonal() ).squeeze()
+                this_hessian = the_op.der_der_cost ( x, self.state_config, \
+                    self, epsilon=epsilon )
             except:
-                continue
-            break
-        try:
-            ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
-            ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
-            ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
-            ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
-        except:
-            retval = {}
-            retval['post_cov'] = None
-            retval['real_ci5pc'] = None
-            retval['real_ci95pc'] = None
-            retval['real_ci25pc'] = None
-            retval['real_ci75pc'] = None
-            retval['post_sigma'] = None
-            retval['hessian'] = None
-            print "Could not calculate Hessian!!!"
-            return retval
+                this_hessian = the_op.der_der_cost ( x_dict, \
+                    self.state_config, self, epsilon=epsilon )
+            if self.verbose:
+                print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
+                    op_name )
+            cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
+                % ( self.output_name, op_name ), 'w'))
+            the_hessian = the_hessian + this_hessian
+        a_sps = sp.csc_matrix( the_hessian )
+
+        lu_obj = sp.linalg.splu( a_sps )
+        
+        main_diag = np.zeros_like ( x )
+        for k in xrange(x.size):
+            b = np.zeros_like ( x )
+            b[k] = 1
+            main_diag[k] = lu_obj.solve ( b )[k]
+            
+        post_cov = sp.dia_matrix(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
+        post_sigma = np.sqrt ( main_diag ).squeeze()
+        
+        ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
+        ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
+        ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
+        ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
         retval = {}
         retval['post_cov'] = post_cov
         retval['real_ci5pc'] = ci_5
@@ -337,7 +374,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-        retval['hessian'] = the_hessian    
+        
         return retval
         
     def cost ( self, x ):
@@ -350,6 +387,7 @@ class State ( object ):
          aggr_cost = 0
          aggr_der_cost = x*0.0
          self.cost_components = {}
+         start_time = time.time()
          for op_name, the_op in self.operators.iteritems():
              
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
@@ -357,7 +395,11 @@ class State ( object ):
              aggr_der_cost = aggr_der_cost + der_cost
              self.cost_components[op_name] = der_cost
              if self.verbose:
-                 print "\t%s %f" % ( op_name, cost )
+                 print "\t%s %8.3e" % ( op_name, cost )
          self.the_cost = aggr_cost
+         print "Total cost: %%8.3e" % aggr_cost
          
+         if self.verbose:
+             print 'Elapsed: %.2f seconds' % (time.time() - start_time)
+             
          return aggr_cost, aggr_der_cost

@@ -23,6 +23,7 @@ __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
 from operators import *
+from state import state
 
 class StandardStatePROSAIL ( State ):
     """A standard state configuration for the PROSAIL model"""
@@ -86,3 +87,7 @@ class StandardStateSEMIDISCRETE ( State ):
             self.output_name = output_name
         print "Saving results to %s" % self.output_name
 
+
+class CrossValidation ( object ):
+    """A crossvalidation class for eoldas_ng"""
+    pass
