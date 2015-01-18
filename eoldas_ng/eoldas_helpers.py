@@ -32,6 +32,7 @@ __author__  = "J Gomez-Dans"
 __version__ = "1.0 (29.12.2014)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
+import platform
 import numpy as np
 import time
 
@@ -41,7 +42,7 @@ from state import State
 class StandardStatePROSAIL ( State ):
     """A standard state configuration for the PROSAIL model"""
     def __init__ ( self, state_config, state_grid, \
-                 output_name=False, verbose=False ):
+                 output_name=None, verbose=False ):
         
         self.state_config = state_config
         self.state_grid = state_grid
