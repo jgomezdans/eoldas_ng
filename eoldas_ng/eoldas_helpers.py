@@ -50,12 +50,12 @@ class StandardStatePROSAIL ( State ):
         self.n_elems =  self.state_grid.size
         # Now define the default values
         self.default_values = OrderedDict ()
-        self.default_values['n'] = 2.
+        self.default_values['n'] = 1.6
         self.default_values['cab'] = 20.
         self.default_values['car'] = 1.
         self.default_values['cbrown'] = 0.01
         self.default_values['cw'] = 0.018 # Say?
-        self.default_values['cm'] = 0.0065 # Say?
+        self.default_values['cm'] = 0.03 # Say?
         self.default_values['lai'] = 2
         self.default_values['ala'] = 70.
         self.default_values['bsoil'] = 0.5
