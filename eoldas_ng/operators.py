@@ -315,9 +315,9 @@ class TemporalSmoother ( object ):
                 if param in self.required_params :
                     xa = np.matrix ( x_dict[param] )
                     cost = cost + \
-                        0.5*self.gamma[isel_param]*(np.sum(np.array(self.D1.dot(xa.T))**2))
+                        0.5*self.gamma[self.required_params.index ( param ) ]*(np.sum(np.array(self.D1.dot(xa.T))**2))
                     der_cost[i:(i+self.n_elems)] = np.array( \
-                        self.gamma[isel_param]*np.dot((self.D1).T, \
+                        self.gamma[self.required_params.index ( param ) ]*np.dot((self.D1).T, \
                         self.D1*np.matrix(xa).T)).squeeze()
                     isel_param += 1
                 i += self.n_elems
@@ -699,7 +699,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, self.mask[:,1] != 0].sum()
+                der_cost[j] = the_derivatives[i, : ].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
