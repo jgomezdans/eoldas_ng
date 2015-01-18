@@ -42,6 +42,7 @@ from state import State
 class StandardStatePROSAIL ( State ):
     """A standard state configuration for the PROSAIL model"""
     def __init__ ( self, state_config, state_grid, \
+                 optimisation_options=None, \
                  output_name=None, verbose=False ):
         
         self.state_config = state_config
@@ -102,6 +103,12 @@ class StandardStatePROSAIL ( State ):
         else:
             self.output_name = output_name
         print "Saving results to %s" % self.output_name
+        if optimisation_options is None:
+            self.optimisation_options = {"factr": 1000, \
+                "m":400, "pgtol":1e-12, "maxcor":200, \
+                "maxiter":1500, "disp":True }
+        else:
+            self.optimisation_options = optimisation_options
 
 class StandardStateSEMIDISCRETE ( State ):
     """A standard state configuration for the SEMIDISCRETE model"""
