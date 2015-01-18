@@ -5,6 +5,8 @@ from operators import ObservationOperator, ObservationOperatorTimeSeriesGP
 from operators import ObservationOperatorImageGP
 from operators import FIXED, CONSTANT, VARIABLE
 
+from eoldas_helpers import StandardStatePROSAIL
+
 #from two_stream import ObservationOperatorTwoStream
 #from two_stream import select_emulator, create_emulators 
 
