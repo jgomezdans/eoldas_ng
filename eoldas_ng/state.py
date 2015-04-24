@@ -49,8 +49,37 @@ class State ( object ):
     def __init__ ( self, state_config, state_grid, default_values, \
             parameter_min, parameter_max, optimisation_options=None, \
             output_name=None, verbose=False ):
-        """State constructor
+        """State constructor. The state defines the problem we will try
+        to solve and as such requires quite  a large number of parameters
         
+        Parameters
+        -----------
+        state_config: OrderedDict
+            The state configuration dictionary. Each key is labeled as FIXED, 
+            CONSTANT or VARIABLE, indicating that that the corresponding 
+            parameter is set to the default value, a constant value over the
+            entire assimilation window, or variable (e.g. inferred over the 
+            selected state grid).
+        state_grid: array
+            The grid where the parameters will be inferred. Either a 1D or a 2D
+            grid            
+        default_values: OrderedDict
+            Default values for the variable. Should have the same keys as 
+            ``state_config`` TODO: add test for keys consistency
+        parameter_min: OrderedDict
+            The lower boundary for the parameters. OrderedDict with same
+            keys as ``state_config``  TODO: add test for keys consistency
+        parameter_max: OrdederedDict
+            The upper boundary for the parameters. OrderedDict with same
+            keys as ``state_config``  TODO: add test for keys consistency
+        optimisation_options: dict
+            Configuration options for the optimiser. These are all options
+            that go into scipy.optimiser TODO: link to the docs
+        output_name: str
+            You can give the output a string tag, or else, we'll just use
+            the timestamp.
+        verbose: boolean
+            Whether to be chatty or not.
         
         """
         self.state_config = state_config
@@ -86,7 +115,26 @@ class State ( object ):
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
         """We can set transformations to the data that will be
-        applied automatically when required."""
+        applied automatically when required. The aim of these
+        transformations is to quasi-linearise the problem, as that helps
+        with convergence and with realistic estimation of posterior
+        uncertainties.
+        
+        Parameters
+        -----------
+        transformation_dict: dict
+            A dictionary that for each parameter (key) has a transformation 
+            function going from "real units" -> "transformed units". You only
+            need to specify functions for the parameters that do require a
+            transformations, the others will be assumed non-transformed.
+            
+        invtransformation_dict: dict
+            A dictionary that for each parameter (key) has the inverse
+            transformation function, going from "transformed units" ->
+            "real units". You only need to specify functions for the 
+            parameters that do require a transformations, the others will 
+            be assumed non-transformed.
+        """
         self.transformation_dict = transformation_dict
         self.invtransformation_dict = invtransformation_dict
         # Recalculate boundaries
@@ -105,6 +153,8 @@ class State ( object ):
                 
                 
     def _state_vector_size ( self ):
+        """Returns the size of the state vector going over the 
+        state grid and state config dictionary."""
         n_params = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT:
@@ -114,6 +164,25 @@ class State ( object ):
         return n_params
         
     def pack_from_dict ( self, x_dict, do_transform=False ):
+        """Packs a state OrderedDict dictionary into a vector that
+        the function optimisers can use. Additionally, you can do a
+        transform using the defined transformation dictionaries of
+        functions.
+        
+        x_dict: OrderedDict
+            A state dictionary. The state dictionary contains the state,
+            indexed by parameter name (e.g. the keys of the dictionary).
+            The arrays of the individual components have the true dimensions
+            of state_grid. All parameter types (FIXED, CONSTANT and 
+            VARIABLE) are present in the state.
+        do_transform: boolean
+            Whether to invoke the forward transformation method on the parameter
+            (if it exists on the trnasformation dictionary) or not.
+            
+        Returns
+        -------
+        A vector of the state that can be consumed by function minimisers.
+        """
         the_vector = np.zeros ( self.n_params )
         # Now, populate said vector in the right order
         # looping over state_config *should* preserve the order
@@ -139,7 +208,31 @@ class State ( object ):
         return the_vector 
     
     def _unpack_to_dict ( self, x, do_transform=False, do_invtransform=False ):
-        """Unpacks an optimisation vector `x` to a working dict"""
+        """Unpacks an optimisation vector `x` to a working dict. The oppossite of
+        ``self._pack_to_dict``, would you believe it.
+        
+        Parameters
+        -----------
+        x: array
+            An array with state elements
+        do_transform: boolean
+            Whether to do a transform from real to transformed units for the elements
+            that support that.
+            
+        do_invtransform: boolean
+            Whether to do an inverse transform from transformed units to real units for
+            elements that suppor that
+            
+        Returns
+        --------
+        x_dict: OrderedDict
+            A state dictionary. The state dictionary contains the state,
+            indexed by parameter name (e.g. the keys of the dictionary).
+            The arrays of the individual components have the true dimensions
+            of state_grid. All parameter types (FIXED, CONSTANT and 
+            VARIABLE) are present in the state.
+        
+        """
         the_dict = OrderedDict()
         i = 0
         for param, typo in self.state_config.iteritems():
@@ -200,16 +293,31 @@ class State ( object ):
         return the_dict
     
     def add_operator ( self, op_name, op ):
-         """Add operators to the state class
+         """Add operators to the state class. The state class per se doesn't do much, one
+         needs to add operators (or "constraints"). These operators are in effect the log
+         of the Gaussian difference between the state (or a transformation of it through an
+         e.g. observation operator) and other constraints, be it observations, prior values,
+         model expectations... The requirements for the operators are to have a ``der_cost``
+         method (that returns the cost and the associated gradient) and a ``der_der_cost``,
+         that returns the Hessian associated to a particular input state dictionary.
          
-         This method will add operator classes (e.g. objects with a `der_cost` and a
-         `der_der_cost` method)"""
+         Parameters
+         -----------
+         op_name: str 
+            A name for the operator. This is just for logging and reporting to the user.
+         op: Operator class
+            An operator class. Typically, provided in ``operators.py`` or derived from the options
+            there, but must containt ``der_cost`` and ``der_der_cost`` methods.
+         """
          the_op = getattr( op, "der_cost", None)
          if not callable(the_op):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
      
     def _get_bounds_list ( self ):
+        """Return a list with the parameter boundaries. This is required to set the 
+        optimisation boundaries, and it returns a list in the order/format expected
+        by L-BFGS"""
         the_bounds = []
         for i, ( param, typo ) in enumerate(self.state_config.iteritems()):
             if typo == CONSTANT:
@@ -220,84 +328,44 @@ class State ( object ):
                     for j in xrange ( self.n_elems )]
         return the_bounds
     
-    def optimize ( self, x0=None, bounds=None, do_unc=False ):
+    def optimize ( self, x0=None, the_bounds=None, do_unc=False ):
+        """Optimise the state starting from a first guess `x0`. Can also allow the 
+        specification of parameter boundaries, and whether to calculate the 
+        uncertainty or not. ``x0`` can have several different forms: it can be
+        an orderedDict with a first guess at the parameters, it can be an operator
+        name that has a ``first_guess`` method that returns a parameter vector (this
+        method is for example a way to use the inverse emulators in some cases), or
+        it can be ``None``, in which case, a random state vector is used.
         
-        """Optimise the state starting from a first guess `x0`"""
+        Parameters
+        -----------
+        x0: dict, string or None
+            Starting point for the state optimisation. Can be a state dict, a string
+            indicating an operator with a ``first_guess`` method, or ``None``, which
+            means that a random initialisation point will be provided.
+        the_bounds: list
+            Boundaries
+        do_unc: boolean
+            Whether to calculate the uncertainty or not.
+        
+        """
+
         start_time = time.clock()
-        
+        if the_bounds is None:
+            the_bounds = self._get_bounds_list()        
         if type(x0) == type ( {} ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif x0 is None:
             # No starting point, start from random location?
+            x0 = np.array ( [ lb + (ub-lb)*np.random.rand() \
+                for (lb,ub) in the_bounds ] )
             raise NotImplementedError
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
             x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
-            #x0 = self._unpack_to_dict ( x0 )
-            ####for param, ptype in self.state_config.iteritems():
-                ####if ptype == CONSTANT:
-                    ####if not x0.has_key ( param ):
-                        ####try:
-                            ####x0[param] = self.operators ['Prior'].mu[param]
-                        ####except KeyError:
-                            ####x0[param] = self.operators ['prior'].mu[param]
-                        
-            ####x0 = self.pack_from_dict ( x0, do_transform=False )
-        #####elif type( x0 ) is list:
-            ###### We get one or more operators that provide one with a first guess,
-            ###### and hopefully, uncertainty. The idea is to combine these first
-            ###### guess estimates
-            #####guesses = []
-            ###### We loop over the operators we wish to use, and we pass the do_unc
-            ###### keyword so that they return a mean + uncertainty
-            #####for op in x0:
-                #####try:
-                    #####guesses.append ( self.operators[x0].first_guess( \
-                        #####self.state_config, do_unc=True ) )
-                #####except NotImplementedError:
-                    ###### No code!
-                    #####pass
-            #####if len( guesses ) == 1:
-                #####x0 = guesses[0][0] # Effectively, same as usual
-                #####for param, ptype in self.state_config.iteritems():
-                    #####if ptype == CONSTANT:
-                        #####if not x0.has_key ( param ):
-                            #####try:
-                                #####x0[param] = self.operators ['Prior'].mu[param]
-                            #####except KeyError:
-                                #####x0[param] = self.operators ['prior'].mu[param]
-            ######elif len( guesses ) == 2:
-                ######for param, ptype in self.state_config.iteritems():
-                    ######if ptype == CONSTANT:
-                        ######if not x0.has_key ( param ):
-                            ######try:
-                                ######x0[param] = self.operators ['Prior'].mu[param]
-                            ######except KeyError:
-                                ######x0[param] = self.operators ['prior'].mu[param]
-                    ######elif ptype == VARIABLE:
-                        ######if not x0.has_key ( param ):
-                            ######try:
-                                ######x0[param] = self.operators ['Prior'].mu[param]
-                            ######except KeyError:
-                                ######x0[param] = self.operators ['prior'].mu[param]
-                        
-                
-                ####### x0 = (x1*s2 + x2*s1)/(s1+s2)
-                ######x0 = ( guesses[0][0]*guesses[1][1] + \
-                    ######guesses[1][0]*guesses[0][1] ) / \
-                    ######( guesses[0][1] + guesses[1][1] )
-            ######for param, ptype in self.state_config.iteritems():
-                ######if ptype == CONSTANT:
-                    ######if not x0.has_key ( param ):
-                        ######try:
-                            ######x0[param] = self.operators ['Prior'].mu[param]
-                        ######except KeyError:
-                            ######x0[param] = self.operators ['prior'].mu[param]
-                        
-            #####x0 = self.pack_from_dict ( x0, do_transform=False )
-        if bounds is None:
-            the_bounds = self._get_bounds_list()
+
+
             
 #            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
 #                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
@@ -331,6 +399,23 @@ class State ( object ):
         return retval_dict
     
     def do_uncertainty ( self, x ):
+        """A method to calculate the uncertainty. Takes in a state vector.
+        
+        Parameters
+        -----------
+        x: array
+            State vector (see ``_self._pack_to_dict``)
+        
+        Returns
+        ---------
+        A dictionary with the values for the posterior covariance function
+        (sparse matrix), 5, 25, 75 and 95 credible intervals, and the
+        main diagonal standar deviation. In each of these (apart from the
+        posterior covariance sparse matrix), we get a new dictionary with
+        parameter keys and the parameter estimation represented in the
+        selected state grid."""
+        
+        
         
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
