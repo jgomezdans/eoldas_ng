@@ -66,7 +66,7 @@ class StandardStatePROSAIL ( State ):
         self.parameter_min = OrderedDict()
         self.parameter_max = OrderedDict()
         min_vals = [ 0.8, 0.2, 0.0, 0.0, 0.0043, 0.0017,0.01, 0, 0., -1., -1.]
-        max_vals = [2.5, 77., 5., 1., 0.0753, 0.0331, 8., 90., 2., 1.]
+        max_vals = [2.5, 77., 5., 1., 0.0753, 0.0331, 10., 90., 2., 1.]
 
         for i, param in enumerate ( state_config.keys() ):
             self.parameter_min[param] = min_vals[i]

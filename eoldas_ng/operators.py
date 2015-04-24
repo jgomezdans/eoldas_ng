@@ -651,6 +651,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nt ) )
+        self.the_gradient = np.zeros ( (
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -687,8 +688,8 @@ class ObservationOperatorTimeSeriesGP ( object ):
             for this_obs_loc in sel_obs.nonzero()[0]:
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
-                this_cost, this_der, fwd_model = self.calc_mismatch ( this_obsop, \
-                    x_params[:, itime], \
+                this_cost, this_der, fwd_model, this_gradient = \
+                    self.calc_mismatch ( this_obsop, x_params[:, itime], \
                     this_obs, self.bu, *this_extra )
                 self.fwd_modelled_obs.append ( fwd_model ) # Store fwd model
                 cost += this_cost
@@ -717,8 +718,9 @@ class ObservationOperatorTimeSeriesGP ( object ):
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
     
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
-        this_cost, this_der, fwd = fwd_model ( gp, x, obs, bu, band_pass, bw )
-        return this_cost, this_der, fwd
+        this_cost, this_der, fwd, gradient = fwd_model ( gp, x, obs, bu, \
+            band_pass, bw )
+        return this_cost, this_der, fwd, gradient
     
     
     def der_der_cost ( self, x_dict, state_config, state, epsilon=1.0e-5 ):
@@ -1039,9 +1041,9 @@ class ObservationOperatorImageGP ( object ):
         # observations size
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nx_state * self.ny_state ) )
-	# Define a 2D array same size as the_derivatives to store the main diagonal
-	# Hessian (linear approximation term)
-	diag_hessian = np.zeros_like ( the_derivatives )
+        # Define a 2D array same size as the_derivatives to store the main diagonal
+        # Hessian (linear approximation term)
+        diag_hessian = np.zeros_like ( the_derivatives )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
