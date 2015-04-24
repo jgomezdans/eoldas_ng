@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-EOLDAS ng
-==========
-
-A reorganisation of the EOLDAS codebase
+A list of useful eoldas_ng operators, e.g. objects that
+calculate cost functions, gradients and Hessians. Idea is that
+you should use one of these for your problem, or extend these
+basic classes to fit your particular problem.
 
 """
 
@@ -261,6 +261,26 @@ class Prior ( object ):
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
     def __init__ ( self, state_grid, gamma, order=1, required_params = None  ):
+        """A simple temporal smoother or Tikhonov constraint. The class
+        requires the state grid, a value (or values) of the regularisation
+        constant, ``gamma``, the order (by default is one, but could be other),
+        and a potential indication to what parameters should the regularisation
+        be applied to. Note that these parameters need to be set to VARIABLE, 
+        otherwise regularisation doesn't make any sense.
+        
+        Parameters
+        ------------
+        state_grid: array
+            A 1D state array (2D extension for this method is also available)
+        gamma: float or array
+            The regularisation constant (or constants). If ``gamma`` is a vector,
+            the positions in the vector relate to the positions in 
+            ``required_params``.
+        order: int
+            The order of the regularisation TODO This is still a bit vague!
+        required_params: None or array
+            An array of parameter names where regularisation will be applied
+        """
         self.order = order
         self.n_elems = state_grid.shape[0]
         I = np.identity( state_grid.shape[0] )
@@ -520,6 +540,29 @@ class ObservationOperator ( object ):
     """An Identity observation operator"""
     def __init__ ( self, state_grid, observations, sigma_obs, mask, \
 		required_params = ['magnitude'], factor=1 ):
+        """The class creator for  a simple identity observation operator.
+        It takes the state grid, the array of observations and associated
+        uncertainty, a mask, the name of "field", and the integer scaling
+        with respect to the state grid (i.e. how many times does one
+        grid cell fit inside an observational cell).
+        
+        Parameters
+        ------------
+        state_grid: array
+            The state grid
+        observations: array
+            An array of observations. Note that this observational array MUST
+            be nested in the ``state_grid`` array. How many times the original
+            state grid size cell fits in this array is control by the ``factor``
+            option.
+        sigma_obs: array
+            The standard deviation of the observations array.
+        mask: array
+            A mask array
+        required_params: list
+            Really, this is just a label for the magnitude of the observations.
+        factor: int 
+            The spatial scaling factor."""
         self.observations = observations
         self.sigma_obs = sigma_obs
         self.mask = mask
