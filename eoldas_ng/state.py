@@ -394,7 +394,7 @@ class State ( object ):
             retval_dict.update ( self.do_uncertainty ( r.x ) )
         if self.verbose:
             print "Saving results to %s" % self.output_name
-            cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
+        cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
         
         return retval_dict
     
@@ -426,24 +426,34 @@ class State ( object ):
         
         #for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             # print "Hessian with epsilon=%e" % epsilon
+        # epsilon is defined in order to use der_der_cost methods that
+        # evaluate the Hessian numerically
         epsilon = 1e-5
         for op_name, the_op in self.operators.iteritems():
+            # The try statement is here to allow der_der_cost methods to
+            # take either a state dictionary or a state vector
             try:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
             except:
+                # TODO Add the right exception
                 this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
             if self.verbose:
                 print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
                     op_name )
+            # Save the individual Hessian contributions to disk
             cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
                 % ( self.output_name, op_name ), 'w'))
+            # Add the current Hessian contribution to the global Hessian
             the_hessian = the_hessian + this_hessian
+        # Need to change the sparse storage format for the Hessian to do
+        # the LU decomposition
         a_sps = sp.csc_matrix( the_hessian )
-
+        # LU decomposition object
         lu_obj = sp.linalg.splu( a_sps )
-        
+        # Now, invert the Hessian in order to get the main diagonal elements
+        # of the inverse Hessian (e.g. the variance)
         main_diag = np.zeros_like ( x )
         for k in xrange(x.size):
             b = np.zeros_like ( x )
@@ -452,11 +462,13 @@ class State ( object ):
             
         post_cov = sp.dia_matrix(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
         post_sigma = np.sqrt ( main_diag ).squeeze()
-        
+        # Calculate credible intervals, transform them back to real units, and 
+        # store in a dictionary.
         ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
         ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
         ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
         ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
+        # Now store uncertainty, and return it to the user in a dictionary
         retval = {}
         retval['post_cov'] = post_cov
         retval['real_ci5pc'] = ci_5
