@@ -364,28 +364,22 @@ class State ( object ):
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
             x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
-
-
             
-#            r = scipy.optimize.fmin_l_bfgs_b( self.cost, x0, m=100, disp=1, \
-#                 factr=1e-3, maxfun=1500, pgtol=1e-20, bounds=the_bounds )
-            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
+        r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options=self.optimisation_options)
-            end_time = time.time()
-            if self.verbose:
-                if r.success:
-                    print "Minimisation was successful: %d \n%s" % \
+        end_time = time.time()
+        if self.verbose:
+            if r.success:
+                print "Minimisation was successful: %d \n%s" % \
                         ( r.status, r.message )
-                else:
-                    print "Minimisation was NOT successful: %d \n%s" % \
+            else:
+                print "Minimisation was NOT successful: %d \n%s" % \
                         ( r.status, r.message )
                 print "Number of iterations: %d" % r.nit
                 print "Number of function evaluations: %d " % r.nfev
                 print "Value of the function @ minimum: %e" % r.fun
                 print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
-        else:
-            r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options=self.optimisation_options )
+                
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
