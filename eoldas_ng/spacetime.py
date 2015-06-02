@@ -816,7 +816,7 @@ if __name__ == "__main__":
     state_config['bsoil'] = VARIABLE
     state_config['psoil'] = VARIABLE
 
-    spatial_factor = [1,1]
+    spatial_factor = None#[1,1]
     space_gamma = 0.5
     the_smoother = SpatialSmoother ( state_grid, space_gamma, \
             required_params=["lai", "cab", "cw", "cm", "psoil", "bsoil"] )
