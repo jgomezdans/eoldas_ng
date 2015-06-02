@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import subprocess
 import fnmatch
 import datetime
@@ -21,11 +22,11 @@ def get_vaa ( lrx, lry, ulx, uly ):
     dx = ulx - lrx
     dy = uly - lry
     m = np.sqrt ( dx * dx + dy * dy )
-    r = np.atan2 ( dx / m, dy / m )
+    r = np.arctan2 ( dx / m, dy / m )
     d = -180. * r / np.pi
     if d < 0:
         d = -d
-
+    return d
 
 def reproject_image_to_master ( master, slave, res=None ):
     """This function reprojects an image (``slave``) to
@@ -180,6 +181,7 @@ class Spectral ( object ):
 class ObservationStorage ( object ):
 
     def __init__ ( self, datadir, resample_opts=None ):
+        self.sensor = None
         pass
 
     def _setup_sensor ( self ):
@@ -203,8 +205,132 @@ class ObservationStorage ( object ):
     def _get_emulators ( self ):
         pass
 
-    def loop_observations ( self ):
-        pass
+    def __add__ ( self, other, resample_opts=None ):
+        """Adds two sets of observations"""
+        result = ObservationStorage (datadir=self.datadir, \
+            resample_opts=resample_opts )
+        if self.date[0] > other.date[0]:
+            start_date = other.date[0]
+        else:
+            start_date = self.date[0]
+        if self.date[-1] > other.date[-1]:
+            end_date = other.date[-1]
+        else:
+            end_date = self.date[-1]
+            
+        delta = datetime.timedelta ( days=1 )
+        this_date = start_date.date()
+        end_date = end_date.date() + delta
+        
+        this_obs_dates = [ x.date() for x in self.date ]
+        other_obs_dates = [ x.date() for x in other.date ]
+        
+        date = [] ; vza = [] ; vaa = [] ; sza = [] ; saa = []
+        emulator = [] ; mask = [] ; data_pntr = [] ; spectral = []
+        sensor = []
+        
+        while this_date < end_date:
+            if this_date in this_obs_dates:
+                iloc = this_obs_dates.index ( this_date )
+                date.append ( self.date[iloc] )
+                emulator.append ( self.emulator[iloc] )
+                vza.append ( self.vza[iloc] )
+                sza.append ( self.sza[iloc] )
+                vaa.append ( self.vaa[iloc] )
+                saa.append ( self.saa[iloc] )
+                spectral.append ( self.spectral )
+                mask.append ( ( self.get_mask, [iloc] ) )
+                sensor.append ( self.sensor )
+                
+                data_pntr.append ( self._data_pntr[iloc] )
+            if this_date in other_obs_dates:
+                iloc = other_obs_dates.index ( this_date )
+                date.append ( other.date[iloc] )
+                emulator.append ( other.emulator[iloc] )
+                vza.append ( other.vza[iloc] )
+                sza.append ( other.sza[iloc] )
+                vaa.append ( other.vaa[iloc] )
+                saa.append ( other.saa[iloc] )
+                spectral.append ( other.spectral )
+                mask.append ( ( other.get_mask, [iloc] ) )
+                sensor.append ( other.sensor )
+                data_pntr.append ( other._data_pntr[iloc] )
+            this_date += delta
+        result.vza = vza
+        result.vaa = vaa
+        result.sza = sza 
+        result.saa = saa 
+        result.date = date
+        result.spectral = spectral
+        result.masks = mask
+        result.sensor = sensor
+        result.emulator = emulator
+        result._data_pntr = data_pntr
+        return result
+            
+            
+            
+    def loop_observations ( self, start_date, end_date, step=1, fmt="%Y-%m-%d" ):
+        """This is a generator method that loops over the available 
+        observations between a start and an end point with a given
+        temporal resolution (in days)"""
+
+        start_date = datetime.datetime.strptime( start_date, fmt )
+        end_date = datetime.datetime.strptime( end_date, fmt )
+        if start_date < self.date[0]:
+            print "No observations until %s, starting from there" % self.date[0]
+            start_date = self.date[0]
+
+        if end_date > self.date[-1]:
+            print "No observations after %s, stopping there" % self.date[-1]
+            end_date = self.date[-1]
+
+        delta = datetime.timedelta ( days=step )
+        this_date = start_date.date()
+        end_date = end_date.date() + delta
+        obs_dates = [ x.date() for x in self.date ]
+        while this_date < end_date:
+            if this_date in obs_dates:
+                iloc = obs_dates.index ( this_date )
+                have_obs = True
+                the_data = self._data_pntr[iloc].ReadAsArray()
+                try:
+                    the_mask = map ( *self.masks[iloc] )
+                except:
+                    the_mask = self.get_mask ( iloc )
+                the_emulator = self.emulator[ iloc ]
+                the_sza = self.sza[ iloc ]
+                the_saa = self.saa[ iloc ]
+                the_vza = self.vza[ iloc ]
+                the_vaa = self.vaa[ iloc ]
+                the_fname = self._data_pntr[iloc].GetDescription()
+                try:
+                    the_sensor = self.sensor[iloc]
+                except:
+                    the_sensor = self.sensor
+                try:
+                    the_spectrum = self.spectral[iloc]
+                except:
+                    the_spectrum = self.spectral
+
+            else:
+                have_obs = False
+                the_data = None
+                the_mask = None
+                the_emulator = None
+                the_sza = None
+                the_saa = None
+                the_vza = None
+                the_vaa = None
+                the_fname = None
+                the_spectrum = None
+            this_date += delta
+            retval = namedtuple ( "retval", ["have_obs", "sensor", "date", "image", "mask", "emulator",
+                                             "sza", "saa", "vza", "vaa", "fname", "spectrum"] )
+            retvals = retval ( have_obs=have_obs, sensor=the_sensor, 
+                               date=this_date - delta, image=the_data, mask=the_mask, emulator=the_emulator, sza=the_sza,
+                               saa=the_saa, vza=the_vza, vaa=the_vaa, fname=the_fname, spectrum=the_spectrum )
+            yield retvals
 
 
 class ETMObservations ( ObservationStorage ):
@@ -214,6 +340,8 @@ class ETMObservations ( ObservationStorage ):
         """The class takes the directory where the files sit. We expect to
         find an XML file with the metadata.
         """
+        ObservationStorage.__init__ ( self, datadir, resample_opts )
+        self.sensor = "ETM+"
         if not os.path.exists ( datadir ):
             raise IOError, "%s does not appear to exist in the filesystem?!"
 
@@ -289,7 +417,7 @@ class ETMObservations ( ObservationStorage ):
                 elif b.attrib['product'] == "cfmask":
                     mask = os.path.join ( dirname, fname )
             # Create VRT?
-            subprocess.call (["gdalbuildvrt", "-separate",
+            subprocess.call (["gdalbuildvrt",  "-overwrite", "-separate",
                               os.path.join ( dirname, md_file.replace(".xml", "_crop.vrt" )) ] + images )
             self.atcorr_refl.append ( os.path.join ( dirname,
                                                      md_file.replace(".xml", "_crop.vrt" )) )
@@ -397,7 +525,9 @@ class SPOTObservations ( ObservationStorage ):
         """The class takes the directory where the files sit. We expect to
         find an XML file with the metadata.
         """
+        
         ObservationStorage.__init__ ( self, datadir, resample_opts=None )
+        self.sensor = "SPOT4"
         if not os.path.exists ( datadir ):
             raise IOError, "%s does not appear to exist in the filesystem?!"
 
@@ -536,54 +666,18 @@ class SPOTObservations ( ObservationStorage ):
             self.emulator.append ( gp_emulator.MultivariateEmulator
                                    ( dump=os.path.join ( emulator_home, the_emulator ) ) )
 
-    def loop_observations ( self, start_date, end_date, step=1, fmt="%Y-%m-%d" ):
-        """This is a generator method that loops over the available 
-        observations between a start and an end point with a given
-        temporal resolution (in days)"""
-
-        start_date = datetime.datetime.strptime( start_date, fmt )
-        end_date = datetime.datetime.strptime( end_date, fmt )
-        if start_date < self.date[0]:
-            print "No observations until %s, starting from there" % self.date[0]
-            start_date = self.date[0]
-
-        if end_date > self.date[-1]:
-            print "No observations after %s, stopping there" % self.date[-1]
-            end_date = self.date[-1]
-
-        delta = datetime.timedelta ( days=step )
-        this_date = start_date.date()
-        end_date = end_date.date() + delta
-        obs_dates = [ x.date() for x in self.date ]
-        while this_date < end_date:
-            if this_date in obs_dates:
-                iloc = obs_dates.index ( this_date )
-                have_obs = True
-                the_data = self._data_pntr[iloc].ReadAsArray()
-                the_mask = self.get_mask ( iloc )
-                the_emulator = self.emulator[ iloc ]
-                the_sza = self.sza[ iloc ]
-                the_saa = self.saa[ iloc ]
-                the_vza = self.vza[ iloc ]
-                the_vaa = self.vaa[ iloc ]
-                the_fname = self._data_pntr[iloc].GetDescription()
-                the_spectrum = self.spectral
-
-            else:
-                have_obs = False
-                the_data = None
-                the_mask = None
-                the_emulator = None
-                the_sza = None
-                the_saa = None
-                the_vza = None
-                the_vaa = None
-                the_fname = None
-                the_spectrum = None
-            this_date += delta
-            retval = namedtuple ( "retval", ["have_obs", "date", "image", "mask", "emulator",
-                                             "sza", "saa", "vza", "vaa", "fname", "spectrum"] )
-            retvals = retval ( have_obs=have_obs,
-                               date=this_date - delta, image=the_data, mask=the_mask, emulator=the_emulator, sza=the_sza,
-                               saa=the_saa, vza=the_vza, vaa=the_vaa, fname=the_fname, spectrum=the_spectrum )
-            yield retvals
+if __name__ == "__main__":
+    resample_opts = {'box': [546334.113775153,  6274489.49408634,  \
+        558032.21126551,  6267491.58431377]}
+    spot_observations = SPOTObservations( "/storage/ucfajlg/MidiPyrenees/SPOT", resample_opts )
+    etm_observations = ETMObservations ("/storage/ucfajlg/MidiPyrenees/ETM7_BOA", resample_opts )
+    for s in spot_observations.loop_observations ( "2013-01-01", "2013-12-31" ):
+        if s.have_obs:
+            print s.date, s.fname
+    for s in etm_observations.loop_observations ( "2013-01-01", "2013-12-31" ):
+        if s.have_obs:
+            print s.date, s.fname
+    combined = spot_observations + etm_observations
+    for s in combined.loop_observations ( "2013-01-01", "2013-12-31" ):
+        if s.have_obs:
+            print s.date, s.fname, s.sensor
