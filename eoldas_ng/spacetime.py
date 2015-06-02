@@ -9,6 +9,72 @@ from eoldas_ng import ObservationOperatorImageGP, StandardStatePROSAIL
 import gp_emulator
 
         
+def set_prior (state, prev_date=None ):
+    mu_prior = OrderedDict (  )
+    prior_inv_cov = OrderedDict ()
+    prior_inv_cov['n'] = np.array([1])
+    prior_inv_cov['cab'] = np.array([1])
+    prior_inv_cov['car'] = np.array([1])
+    prior_inv_cov['cbrown'] = np.array([1])
+    prior_inv_cov['cw'] = np.array([0.7])
+    prior_inv_cov['cm'] = np.array([0.7])
+    prior_inv_cov['lai'] = np.array([1])
+    prior_inv_cov['ala'] = np.array([1])
+    prior_inv_cov['bsoil'] = np.array([3])
+    prior_inv_cov['psoil'] = np.array([3])
+        
+    for param in state.parameter_min.iterkeys():
+        if state.transformations.has_key ( param ):
+            mu_prior[param] = state.transformations[param]( \
+                    np.array([default_par[param]]) )
+        else:
+            mu_prior[param] = np.array([default_par[param]])
+        prior_inv_cov[param] = 1./prior_inv_cov[param]**2
+
+    n_elems = state_grid.size 
+    n_pars = 0
+    for k,v in state.state_config.iteritems():
+        if v == 3: # VARIABLE for the time being...
+            n_pars += 1
+            
+    prior_vect = np.zeros ( n_elems*n_pars  )# 
+    inv_sig_prior = np.zeros ( n_elems*n_pars  )# 6 variable params + 2 const
+    # Now, populate said vector in the right order
+    # looping over state_config *should* preserve the order
+    if prev_date is not None:
+        f = cPickle.load ( open ( prev_date, 'r'))
+        x = f['transformed_map'] # needs to be vectorised, it's a dict
+        prior_vect = state.pack_from_dict ( x, do_transform=False )
+        prior_inv_covariance = f['hessian']
+        
+    else:    
+        i = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT: # Constant value for all times
+                if prev_date is None:
+                    prior_vect[i] = mu_prior[param]
+                else:
+                    prior_vect[i] = previous_posterior['transformed_map'][param]
+                inv_sig_prior[i] = prior_inv_cov[param]
+                i = i+1        
+            elif typo == VARIABLE:
+                # For this particular date, the relevant parameter is at location iloc
+                if prev_date is None:
+                    prior_vect[i:(i + n_elems)] =  \
+                        np.ones(n_elems)*mu_prior[param]
+                else:
+                    prior_vect[i:(i + n_elems)] = \
+                        previous_posterior['transformed_map'][param].flatten()
+                inv_sig_prior[i:(i + n_elems)] = \
+                        np.ones ( n_elems)*prior_inv_cov[param]
+                i += n_elems
+        prior_inv_covariance = sp.dia_matrix( ([inv_sig_prior], [0]),\
+            shape=[n_elems*n_pars, n_elems*n_pars])
+
+
+    prior = Prior ( prior_vect, prior_inv_covariance )
+    return prior
+
 
     
 class SingleImageProcessor ( object ):
