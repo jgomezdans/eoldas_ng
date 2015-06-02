@@ -854,4 +854,4 @@ if __name__ == "__main__":
         ###bw, band_pass, emulator, prior, regularisation, process_name, \
         ###factor, optimisation_options=None, verbose=False ):
 
-            
+        # Just some random text added at the end to check pre-commit hooks
