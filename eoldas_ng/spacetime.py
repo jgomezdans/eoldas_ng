@@ -2,17 +2,32 @@ import fnmatch
 import datetime
 import glob
 import os
+import re
 import xml.etree.ElementTree
+from collections import OrderedDict, namedtuple
 
 from osgeo import gdal
 import numpy as np
-import scpiy.sparse as sp
+import scipy.sparse as sp
 
 from eoldas_ng import Prior, SpatialSmoother
+from eoldas_ng import ObservationOperatorImageGP, StandardStatePROSAIL
 import gp_emulator
+
+FIXED = 1
+CONSTANT = 2
+VARIABLE = 3
    
-
-
+def get_vaa ( lrx, lry, ulx, uly ):
+    
+    dx = ulx - lrx
+    dy = uly - lry
+    m = np.sqrt ( dx*dx + dy*dy )
+    r = np.atan2 ( dx/m, dy/m )
+    d = -180.*r/np.pi
+    if d < 0:
+        d = -d
+    
 def set_prior (state, prev_date=None ):
     mu_prior = OrderedDict (  )
     prior_inv_cov = OrderedDict ()
@@ -233,17 +248,36 @@ class Spectral ( object ):
                     wv <= self.b_max[i] )
             self.bw[i] = self.b_max[i] - self.b_min[i]
         
-   
 class ObservationStorage ( object ):
-    """An object that stores raster observations, including links
-    to the data, a mask (or link to the mask), retrieves angles and
-    decides on an observation operator.
+    def __init__ ( self, datadir, resample_opts=None ):
+        pass 
     
-    This particular implementation is designed with SPOT4/Take5 data in mind
-    but it is expected that a similar approach could be taken with e.g.
-    Landsat or Sentinel2 data.
-    """
+    def _setup_sensor ( self ):
+        pass
+    
+    def _parse_metadata ( self ):
+        pass
 
+    def _get_emulators ( self ):
+        pass
+
+    def _sort_data ( self, resample_opts ):
+        pass
+    
+    def get_data ( self ):
+        pass
+    
+    def get_mask ( self ):
+        pass
+    
+    def _get_emulators ( self ):
+        pass
+    
+    def loop_observations ( self ):
+        pass
+
+class ETMObservations ( ObservationStorage ):
+    """A class to locate and process ETM+ observations fro disk."""
     def __init__ ( self, datadir, resample_opts=None ):
         """The class takes the directory where the files sit. We expect to
         find an XML file with the metadata.
@@ -262,14 +296,197 @@ class ObservationStorage ( object ):
         if len ( self.metadata ) < 0:
             raise IOError, "No xml metadatafiles in %s" % self.datadir
         
-        self.spectral = Spectral ( np.array([500,610,780,1580.] ), \
-                    np.array([590,680,890,1750.] ) )                          
         self._setup_sensor()
         self._parse_metadata ()
         self._get_emulators ()
         self._sort_data ( resample_opts )
+        
     def _setup_sensor ( self ):
         """Sets up spectral stuff for this sensor."""
+        self.spectral = Spectral ( np.array([450,520,630,770., 1550, 2090.] ), \
+                    np.array([ 520, 600, 690, 900., 1750., 2350.] ) )                          
+        
+    def _parse_metadata ( self ):
+        """Parse the metadata file. This assumes we have SPOT/Take5 XML files, but
+        something similar will be available for Landsat or what not."""
+        self.date =  []
+        self.atcorr_refl = []
+        self.saa = []
+        self.sza = []
+        self.vaa = []
+        self.vza = []
+        self.res = []
+        self._mask = []
+        for md_file in self.metadata:
+            # This is required to get rid of the namespace cruft
+            it = ET.iterparse ( md_file )
+            for _, el in it:
+                el.tag = el.tag.split('}', 1)[1]  # strip all namespaces
+            tree = it.root
+
+            dirname = os.path.dirname ( md_file )
+            
+            self.date.append(  datetime.datetime.strptime( \
+                    tree.find("global_metadata/acquisition_date").text, \
+                        "%Y-%m-%d") )
+            
+            for c in tree.findall ("global_metadata/corner"):
+                if c.attrib['location'] == "UL":
+                    ulx = float ( c.attrib['longitude'] )
+                    uly = float ( c.attrib['latitude'] )
+                else:
+                    lrx = float ( c.attrib['longitude'] )
+                    lry = float ( c.attrib['latitude'] )
+
+                
+            
+            self.vaa.append ( get_vaa ( lrx, lry, ulx, uly )    )
+
+            #self.atcorr_refl.append( os.path.join ( dirname, tree[1][2].text ) )
+            self.saa.append( float (  root.find("global_metadata/solar_angles").attrib['azimuth'] ) )
+            self.sza.append( float (  root.find("global_metadata/solar_angles").attrib['zenith'] ) )
+            self.vza.append( 0.0 ) # Note that LDCM can look sideways a bit!
+            self.res.append( 30. ) # 30m
+            
+            images = []
+            mask = []
+            for b in tree.findall("bands/band"):
+                if b.attrib['product'] == "toa_refl":
+                    fname = b.find("file_name").text
+                    if fname.find ( "qa.tif" ) < 0:
+                        images.append ( os.path.join ( dirname, fname ) )
+                elif b.attrib['product'] == "cfmask":
+                    mask = os.path.join ( dirname, fname )
+            # Create VRT?     
+            subprocess.call (["gdalbuildvrt", "-separate", \
+                os.path.join ( dirname, md_file.replace(".xml", "_crop.vrt" )) ] + images )
+            self.atcorr_refl.append ( os.path.join ( dirname, \
+                md_file.replace(".xml", "_crop.vrt" )) )
+            self._mask.append( mask )
+
+    def _sort_data ( self, resample_opts ):
+        """Get a pointer to the actual data, but don't load it into memory."""
+        self._data_pntr = []
+        for refl_file in self.atcorr_refl:
+            if os.path.exists ( os.path.join ( self.datadir, refl_file ) ):
+                if resample_opts is None:
+                    fname = os.path.join ( self.datadir, refl_file ) 
+                else:
+                    fname = reproject_cut ( os.path.join ( self.datadir, refl_file ), \
+                        **resample_opts )
+                self._data_pntr.append ( gdal.Open ( fname )                                        )
+            else:
+            
+                raise IOError, "GDAL cannot open this file: %s" % ( os.path.join ( \
+                    self.datadir, refl_file) )
+        self.resample_opts = resample_opts
+            
+    def get_data ( self ):
+        """Return the data as a Numpy array. TODO Add a subset mechanism?"""
+        return self._data_pntr.ReadAsArray()
+
+    def get_mask ( self, iloc ):
+        """Calculates the mask from its different components (again, SPOT4/Take5 data
+        assumed). Will probably need to be modified for other sensors, and clearly
+        we are assuming we have a mask already, in TOA processing, this might be a 
+        good place to apply a simple cloud/cloud shadow mask or something like that."""
+        mask = self._mask[iloc]
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, mask ), \
+                        **self.resample_opts )
+
+        g = gdal.Open( the_mask )
+        sat = g.ReadAsArray()
+        m3 = sat == 0
+
+        the_mask = mask.replace("SAT", "DIV")
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, the_mask ), \
+                        **self.resample_opts )        
+
+        g = gdal.Open( the_mask  )
+        div = g.ReadAsArray()
+        m1 = div == 0 
+    
+        the_mask = mask.replace("SAT", "NUA")
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, the_mask ), \
+                        **self.resample_opts )        
+
+        g = gdal.Open( the_mask )
+        nua = g.ReadAsArray()
+        m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
+        return m1 * m2 * m3
+    
+    def _get_emulators ( self, model="prosail", emulator_home=\
+            "/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus/" ):
+        """Based on the geometry, get the emulators. What could be simpler?"""
+        files = glob.glob("%s*.npz" % emulator_home)
+        emulator_search_dict = {}
+        for f in files:
+            emulator_search_dict[ float(f.split("/")[-1].split("_")[0]), \
+                                float(f.split("/")[-1].split("_")[1]),
+                                float(f.split("/")[-1].split("_")[2]), \
+                                float(f.split("/")[-1].split("_")[3])] = f
+        # So we have a dictionary inddexed by SZA, VZA and RAA and mapping to a filename
+        # Remove some weirdos...
+
+        
+        emu_keys = np.array( emulator_search_dict.keys() )
+        self.emulator = []
+        for i in xrange (len ( self.metadata ) ):
+            e_sza = emu_keys[np.argmin (np.abs( emu_keys[:,0] - self.sza[i] )), 0]
+            e_vza = emu_keys[np.argmin (np.abs( emu_keys[:,2] - self.vza[i] )), 2]
+            e_saa = emu_keys[np.argmin (np.abs( emu_keys[:,2] - self.saa[i] )), 1]
+            e_vaa = emu_keys[np.argmin (np.abs( emu_keys[:,3] - self.vaa[i] )), 3]
+            print self.sza[i], e_sza, self.vza[i], e_vza, self.vaa[i], e_vaa, self.saa[i], e_saa
+            the_emulator = "%.1f_%.1f_%.1f_%.1f_%s.npz" % ( e_sza, e_saa, e_vza, e_vaa, model )
+            print "Using emulator %s" % os.path.join ( emulator_home, the_emulator )
+            self.emulator.append ( gp_emulator.MultivariateEmulator \
+                        ( dump=os.path.join ( emulator_home, the_emulator ) ) )
+
+
+
+
+################################################################        
+class SPOTObservations ( ObservationStorage ):
+    """An object that stores raster observations, including links
+    to the data, a mask (or link to the mask), retrieves angles and
+    decides on an observation operator.
+    
+    This particular implementation is designed with SPOT4/Take5 data in mind
+    but it is expected that a similar approach could be taken with e.g.
+    Landsat or Sentinel2 data.
+    """
+
+    def __init__ ( self, datadir, resample_opts=None ):
+        """The class takes the directory where the files sit. We expect to
+        find an XML file with the metadata.
+        """
+        ObservationStorage.__init__ ( self, datadir, resample_opts=None )
+        if not os.path.exists ( datadir ):
+            raise IOError, "%s does not appear to exist in the filesystem?!"
+
+        self.metadata = []
+        for root, dirnames, filenames in os.walk( datadir ):
+            for filename in fnmatch.filter(filenames, '*.xml'):
+                self.metadata.append(os.path.join(root, filename))
+
+        self.datadir = datadir
+
+
+        if len ( self.metadata ) < 0:
+            raise IOError, "No xml metadatafiles in %s" % self.datadir
+        
+        self._setup_sensor()
+        self._parse_metadata ()
+        self._get_emulators ()
+        self._sort_data ( resample_opts )
+        
+    def _setup_sensor ( self ):
+        """Sets up spectral stuff for this sensor."""
+        self.spectral = Spectral ( np.array([500,610,780,1580.] ), \
+                    np.array([590,680,890,1750.] ) )                          
         
     def _parse_metadata ( self ):
         """Parse the metadata file. This assumes we have SPOT/Take5 XML files, but
@@ -313,7 +530,8 @@ class ObservationStorage ( object ):
             
                 raise IOError, "GDAL cannot open this file: %s" % ( os.path.join ( \
                     self.datadir, refl_file) )
-    
+        self.resample_opts = resample_opts
+            
     def get_data ( self ):
         """Return the data as a Numpy array. TODO Add a subset mechanism?"""
         return self._data_pntr.ReadAsArray()
@@ -323,21 +541,35 @@ class ObservationStorage ( object ):
         assumed). Will probably need to be modified for other sensors, and clearly
         we are assuming we have a mask already, in TOA processing, this might be a 
         good place to apply a simple cloud/cloud shadow mask or something like that."""
-        the_mask = self._mask[iloc]
+        mask = self._mask[iloc]
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, mask ), \
+                        **self.resample_opts )
+
         g = gdal.Open( the_mask )
         sat = g.ReadAsArray()
         m3 = sat == 0
-        
-        g = gdal.Open( the_mask.replace("SAT", "DIV") )
+
+        the_mask = mask.replace("SAT", "DIV")
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, the_mask ), \
+                        **self.resample_opts )        
+
+        g = gdal.Open( the_mask  )
         div = g.ReadAsArray()
         m1 = div == 0 
+    
+        the_mask = mask.replace("SAT", "NUA")
+        if self.resample_opts is not None:
+            the_mask = reproject_cut ( os.path.join ( self.datadir, the_mask ), \
+                        **self.resample_opts )        
 
-        g = gdal.Open( the_mask.replace("SAT", "NUA") )
+        g = gdal.Open( the_mask )
         nua = g.ReadAsArray()
         m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
         return m1 * m2 * m3
     
-    def _get_emulators ( self, emulator_home=\
+    def _get_emulators ( self, model="prosail", emulator_home=\
             "/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus/" ):
         """Based on the geometry, get the emulators. What could be simpler?"""
         files = glob.glob("%s*.npz" % emulator_home)
@@ -359,7 +591,7 @@ class ObservationStorage ( object ):
             e_saa = emu_keys[np.argmin (np.abs( emu_keys[:,2] - self.saa[i] )), 1]
             e_vaa = emu_keys[np.argmin (np.abs( emu_keys[:,3] - self.vaa[i] )), 3]
             print self.sza[i], e_sza, self.vza[i], e_vza, self.vaa[i], e_vaa, self.saa[i], e_saa
-            the_emulator = "%.1f_%.1f_%.1f_%.1f_prosail.npz" % ( e_sza, e_saa, e_vza, e_vaa )
+            the_emulator = "%.1f_%.1f_%.1f_%.1f_%s.npz" % ( e_sza, e_saa, e_vza, e_vaa, model )
             print "Using emulator %s" % os.path.join ( emulator_home, the_emulator )
             self.emulator.append ( gp_emulator.MultivariateEmulator \
                         ( dump=os.path.join ( emulator_home, the_emulator ) ) )
@@ -395,6 +627,7 @@ class ObservationStorage ( object ):
                 the_vza = self.vza[ iloc ]
                 the_vaa = self.vaa[ iloc ]
                 the_fname = self._data_pntr[iloc].GetDescription()
+                the_spectrum = self.spectral
                 
             else:
                 have_obs = False
@@ -406,9 +639,14 @@ class ObservationStorage ( object ):
                 the_vza = None
                 the_vaa = None
                 the_fname = None
+                the_spectrum = None
             this_date += delta
-            yield have_obs, this_date - delta, the_data, the_mask, the_emulator, the_sza, \
-                the_saa, the_vza, the_vaa, the_fname
+            retval = namedtuple ( "retval", ["have_obs", "date", "image", "mask", "emulator", \
+                "sza", "saa", "vza", "vaa", "fname", "spectrum"] )
+            retvals = retval ( have_obs=have_obs, \
+                date=this_date - delta, image=the_data, mask=the_mask, emulator=the_emulator, sza=the_sza, \
+                saa=the_saa, vza=the_vza, vaa=the_vaa, fname=the_fname, spectrum=the_spectrum )
+            yield retvals
 
         
 
@@ -473,17 +711,22 @@ class SingleImageProcessor ( object ):
             A verbose flag            
         """
         
-        # Get the state, bitches...
+        # Get the state [CENSORED]
         self.the_state = StandardStatePROSAIL ( state_config, state_grid, \
                  optimisation_options=optimisation_options, \
                  output_name=process_name, verbose=verbose )
+        self._build_observation_constraint ( state_grid, image, mask, 
+                                            emulator, band_unc, factor,
+                                            band_pass, bw )
         # Note that this isn't very satisfactory, but we can always change 
         # that: the prior just needs a mean and a sparse covariance, and 
         # the regularisation needs the gamma(s) and parameters to apply it
         # to
         self.the_prior = prior
         self.the_model = regularisation
-        self.the_state.add_operator ( "Prior", self.the_prior )
+        print "WARNING! No prior involved here!"
+        print "PRIOR needs defining!"
+        #self.the_state.add_operator ( "Prior", self.the_prior )
         self.the_state.add_operator ( "Regularisation", self.the_model )
         self.the_state.add_operator ( "Observations", self.the_observations )
         
@@ -501,7 +744,8 @@ class SingleImageProcessor ( object ):
             self.the_state.state_config )
 
     def solve ( self, x0=None ):
-        pass
+        return self.the_state.optimize ( x0=x0, do_unc=True )
+    
             
 """Some requirements for processing:
 * We need a a state config, both for each image and temporally, as we might 
@@ -558,10 +802,56 @@ class SpaceTimeProcessor ( object ):
     
 if __name__ == "__main__":
 #    obs1 = ObservationStorage ( "/storage/ucfajlg/MidiPyrenees")
+    state_grid = np.zeros ( ( 584, 349 ) )
+    
+    state_config = OrderedDict ()
+    state_config['n'] = FIXED
+    state_config['cab'] = VARIABLE
+    state_config['car'] = FIXED
+    state_config['cbrown'] = FIXED
+    state_config['cw'] = VARIABLE
+    state_config['cm'] = VARIABLE
+    state_config['lai'] = VARIABLE
+    state_config['ala'] = FIXED
+    state_config['bsoil'] = VARIABLE
+    state_config['psoil'] = VARIABLE
+
+    spatial_factor = [1,1]
+    space_gamma = 0.5
+    the_smoother = SpatialSmoother ( state_grid, space_gamma, \
+            required_params=["lai", "cab", "cw", "cm", "psoil", "bsoil"] )
+#    the_prior = set_prior ()
+    
     resample_opts = {'box': [546334.113775153,  6274489.49408634,  \
         558032.21126551,  6267491.58431377]}
-    obs2 = ObservationStorage ( "/storage/ucfajlg/MidiPyrenees", resample_opts )
-    for s in obs2.loop_observations ( "2013-01-01", "2013-12-31" ):
-        if s[0]:
-            print s[-1]
+    bu = [ 0.02, 0.02, 0.02, 0.02]
+    spot_observations = SPOTObservations( "/storage/ucfajlg/MidiPyrenees/SPOT", resample_opts )
+    for s in spot_observations.loop_observations ( "2013-01-01", "2013-12-31" ):
+        if s.have_obs: 
+            print s.date
+            # First element of iterator is True, then we have an observation
+            # What is needed at this stage is
+            # 1. The prior object (see ``set_prior`` function)
+            # 2. The spatial smoother
+            # 3. A state configuration dictionary
+            # 4. A state grid
+            # 5. The spatial factor (ratio of observation spatial resolution
+            #    to state spatial resolution. Must be integer)
+            # 6. The actual data array 
+            # 7. The relevant mask
+            # 8. The observational uncertainty
+            # 9. Spectral parameters
+            # 10. Process name from the actual image filename
+            this_image = SingleImageProcessor ( state_config, state_grid,
+                                               s.image/1000., bu, s.mask, s.spectrum.bw,
+                                               s.spectrum.band_pass, s.emulator, the_smoother, 
+                                               the_smoother, s.fname.replace("_crop.tif", ""),
+                                               spatial_factor )
+            x0 = this_image.first_guess ()
+            
+            break
+                ###def __init__ ( self, state_config, state_grid, image, band_unc, mask, \
+        ###bw, band_pass, emulator, prior, regularisation, process_name, \
+        ###factor, optimisation_options=None, verbose=False ):
+
             
