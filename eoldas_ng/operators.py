@@ -1312,3 +1312,140 @@ class ObservationOperatorImageGP ( object ):
             ##x[i] = xx0
         ##return sp.lil_matrix ( h )
 """
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
+    """A GP-based observation operator"""
+    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, parallel_profile="default", 
+            factor=None, band_pass=None, bw=None, per_band=False ):
+        """
+         observations is an array with n_bands, nt observations. nt has to be the 
+         same size as state_grid (can have dummny numbers in). mask is nt*4 
+         (mask, vza, sza, raa) array.
+             
+         
+        """
+        ObservationOperatorImageGP.__init__ ( self, state_grid, state, observations, mask, 
+                                             emulators, bu, factor, band_pass, bw, per_band )
+        # Set up parallel infrastructure        
+        client = IPython.Client ( profile = parallel_profile )
+        view = client.load_balanced_view ()
+        self.dview = client[:]
+        self.dview.execute (  "import numpy as np" )
+        self.dview.execute (  "from gp_emulator import GaussianProcess" )
+        
+        self.dview.push ( dict(the_emulators=self.emulators, n_bands=self.n_bands)  )
+        self.N_NOES = len( self.dview[:] )
+
+    def predict_observations ( self, x_dict, state_config ):
+        """
+        This method forward models the observations based on the state dict. The
+        idea is to predict the entire observations for the sensor, as a check
+        that e.g. the assimilation worked, but also for cross-validation, as
+        the masks will not be used (i.e., we predict all pixels, even those that
+        have been masked)
+        
+                
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        --------
+        predictions: array
+            An array identical to self.observations, with a prediction based on
+            the chosen `x_dict`.
+
+        """
+        i = 0
+        cost = 0.
+        n = 0
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = x_dict[param].size
+                n += n_elems
+        der_cost = np.zeros ( n )
+        # `x_params` should relate to the grid state size, not observations size
+        x_params = np.empty ( ( len( x_dict.keys()), \
+            self.nx_state * self.ny_state ) )
+        j = 0
+        ii = 0
+        # `the_derivatives` should relate to the grid state size, not 
+        # observations size
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), \
+                self.nx_state * self.ny_state ) )
+        for param, typo in state_config.iteritems():
+        
+            if typo == FIXED or  typo == CONSTANT:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
+                
+            elif typo == VARIABLE:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param].flatten()
+
+            j += 1
+        
+        # x_params is [n_params, Nx*Ny]
+        def fwd_model ( x ):
+            Np, Ns = x.shape
+            gradient = np.zeros((n_bands, Ns, Np))
+            function = np.zeros (( n_bands, Ns ))
+            for band in xrange( n_bands ):
+                function[band, :], gradient[band, :, :] = the_emulators[band].predict ( x.T, do_unc=False )
+            return function, gradient
+        # z = self.dview.map_sync ( fwd_model, x_params[:, :].T )
+        z = self.dview.map_sync( fwd_model, [x_params[:, 
+                               -(-x_params.shape[1]*i//self.N_NODES):\
+                               -(-x_params.shape[1]*(i+1)//self.N_NODES)] 
+                               for i in xrange(self.N_NODES)] )
+        # z is a self.N_NODES list, where each element is a refl[n_bands, n_chunk]/gradient[n_bands, n_chunk, n_par]
+        predictions = self.observations * 0.
+        for band in xrange ( self.n_bands :
+            fwd_model = np.concatenate(np.array([s[0][0] for s in z])  )
+            partial_derv = np.concatenate(np.array([s[1][0] for s in z]), axis=0)
+            if self.factor is not None:
+                # Multi-resolution! Need to integrate over the low resolution
+                # footprint using downsample in `eoldas_utils`
+                fwd_model = downsample ( fwd_model.reshape( \
+                    self.state_grid.shape), self.factor[0], \
+                    self.factor[1] ).flatten()
+            # Now calculate the cost increase due to this band...
+            predictions [ band, :, : ] = fwd_model.reshape( (self.mask.shape))
+       return predictions
+
+
+
