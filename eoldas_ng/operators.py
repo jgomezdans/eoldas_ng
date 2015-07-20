@@ -1592,3 +1592,5 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
         return cost, der_cost
+
+
