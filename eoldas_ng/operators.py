@@ -755,7 +755,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
     def time_step ( self, this_loc ):
         """Returns relevant information on the observations for a particular time step.
         """
-        tag = np.round( self.mask[ this_loc, 2:].astype (np.int)/5.)*5
+        tag = np.round( self.mask[ this_loc, 1:].astype (np.int)/5.)*5
         tag = tuple ( (tag[:2].astype(np.int)).tolist() )
         this_obs = self.observations[ this_loc, :]
         return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
