@@ -1358,7 +1358,7 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
         self.dview.execute (  "from gp_emulator import GaussianProcess" )
         
         self.dview.push ( dict(the_emulators=self.emulators, n_bands=self.n_bands)  )
-        self.N_NOES = len( self.dview[:] )
+        self.N_NODES = len( self.dview[:] )
 
     def predict_observations ( self, x_dict, state_config ):
         """
@@ -1434,7 +1434,7 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
                                for i in xrange(self.N_NODES)] )
         # z is a self.N_NODES list, where each element is a refl[n_bands, n_chunk]/gradient[n_bands, n_chunk, n_par]
         predictions = self.observations * 0.
-        for band in xrange ( self.n_bands :
+        for band in xrange ( self.n_bands ):
             fwd_model = np.concatenate(np.array([s[0][0] for s in z])  )
             partial_derv = np.concatenate(np.array([s[1][0] for s in z]), axis=0)
             if self.factor is not None:
@@ -1449,3 +1449,146 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
 
 
 
+    def der_cost ( self, x_dict, state_config ):
+
+        """
+        The cost function and its partial derivatives. One important thing
+        to note is that GPs have been parameterised in transformed space, 
+        whereas `x_dict` is in "real space". So when we go over the parameter
+        dictionary, we need to transform back to linear units. TODO Clearly, it
+        might be better to have cost functions that report whether they need
+        a dictionary in true or transformed units!
+        
+        Parameters
+        -----------
+        x_dict: ordered dict
+            The state as a dictionary
+        state_config: oredered dict
+            The configuration dictionary
+        
+        Returns
+        --------
+        cost: float
+            The value of the cost function
+        der_cost: array
+            An array with the partial derivatives of the cost function
+        """
+        i = 0
+        cost = 0.
+        n = 0
+        n = 0
+        for param, typo in state_config.iteritems():
+            if typo == CONSTANT:
+                n += 1
+            elif typo == VARIABLE:
+                n_elems = x_dict[param].size
+                n += n_elems
+        der_cost = np.zeros ( n )
+        # `x_params` should relate to the grid state size, not observations size
+        x_params = np.empty ( ( len( x_dict.keys()), \
+            self.nx_state * self.ny_state ) )
+        j = 0
+        ii = 0
+        # `the_derivatives` should relate to the grid state size, not 
+        # observations size
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), \
+                self.nx_state * self.ny_state ) )
+        # Define a 2D array same size as the_derivatives to store the main diagonal
+        # Hessian (linear approximation term)
+        diag_hessian = np.zeros_like ( the_derivatives )
+        for param, typo in state_config.iteritems():
+        
+            if typo == FIXED or  typo == CONSTANT:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param]
+                
+            elif typo == VARIABLE:
+                #if self.state.transformation_dict.has_key ( param ):
+                    #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
+                #else:
+                x_params[ j, : ] = x_dict[param].flatten()
+
+            j += 1
+        
+        # x_params is [n_params, Nx*Ny]
+        # it should be able to run the emulators directly on x_params, and then 
+        # do a reshape
+        if self.factor is not None:
+            # Interpolate the mask is needed for the derivatives
+            zmask = zoom ( self.mask, self.factor, order=0, mode="nearest" \
+                ).astype ( np.bool )
+        else:
+            zmask = self.mask
+        self.obs_op_grad = []
+        # x_params is [n_params, Nx*Ny]
+        def fwd_model ( x ):
+            Np, Ns = x.shape
+            gradient = np.zeros((n_bands, Ns, Np))
+            function = np.zeros (( n_bands, Ns ))
+            for band in xrange( n_bands ):
+                function[band, :], gradient[band, :, :] = the_emulators[band].predict ( x.T, do_unc=False )
+            return function, gradient
+        
+        z = self.dview.map_sync( fwd_model, [x_params[:, 
+                               -(-x_params.shape[1]*i//self.N_NODES):\
+                               -(-x_params.shape[1]*(i+1)//self.N_NODES)] 
+                               for i in xrange(self.N_NODES)] )
+        # z is a self.N_NODES list, where each element is a refl[n_bands, n_chunk]/gradient[n_bands, n_chunk, n_par]
+
+        
+        for band in xrange ( self.n_bands ):
+            fwd_model = np.concatenate(np.array([s[0][0] for s in z])  )
+            partial_derv = np.concatenate(np.array([s[1][0] for s in z]), axis=0)
+            self.obs_op_grad.append ( partial_derv )
+            if self.factor is not None:
+                # Multi-resolution! Need to integrate over the low resolution
+                # footprint using downsample in `eoldas_utils`
+                fwd_model = downsample ( fwd_model.reshape( \
+                    self.state_grid.shape), self.factor[0], \
+                    self.factor[1] ).flatten()
+            # Now calculate the cost increase due to this band...
+            err = ( fwd_model - self.observations[band, self.mask] )
+            self.fwd_modelled_obs[band, self.mask] = fwd_model
+            cost += np.sum(0.5 * err**2/self.bu[band]**2 )
+            # And update the partial derivatives
+            #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
+                #(( fwd_model[self.mask.flatten()] - \
+                #self.observations[band, self.mask] ) \
+                #/self.bu[band]**2)[:, None]).T
+            
+            # TODO there's a mismatch of sizes. The derivatives are in state
+            # grid, not in observation grid. So we need to "zoom" the second
+            # line of the following expression (fwd_model - obs) to be the
+            # same shape as the derivatives
+            # TODO also note how we cope with data gaps here, as the mask also
+            # appears on the RHS of the expression. Do I also need a zoomed
+            # version of the mask?
+            if self.factor is not None:
+                err = zoom ( err.reshape((self.nx, self.ny)), \
+                    self.factor, order=0, mode="nearest" ).flatten()
+ 
+            the_derivatives[:, zmask.flatten()] += (partial_derv[:, :] * \
+                (err/self.bu[band]**2)[:, None]).T
+            ####the_derivatives[:, self.mask.flatten()] += (partial_derv[:, :] * \
+                ####(( fwd_model[:] - \
+                ####self.observations[band, self.mask] ) \
+                ####/self.bu[band]**2)[:, None]).T
+          
+        diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
+        
+        j = 0
+        self.diag_hess_vect = np.zeros_like ( der_cost )
+        for  i, (param, typo) in enumerate ( state_config.iteritems()) :
+            if typo == CONSTANT:
+                der_cost[j] = the_derivatives[i, :].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
+                j += 1
+            elif typo == VARIABLE:
+                n_elems = x_dict[param].size
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
+                j += n_elems
+        self.gradient = der_cost # Store the gradient, we might need it later
+        return cost, der_cost
