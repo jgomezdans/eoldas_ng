@@ -4,10 +4,12 @@ from collections import OrderedDict
 import numpy as np
 import scipy.sparse as sp
 
+from eoldas_ng import *
+
 from eoldas_ng import Prior, SpatialSmoother
 from eoldas_ng import ObservationOperatorImageGP, StandardStatePROSAIL
 import gp_emulator
-
+from eoldas_observation_helpers import *
         
 def set_prior (state, prev_date=None ):
     mu_prior = OrderedDict (  )
