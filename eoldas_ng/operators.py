@@ -1445,7 +1445,7 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
                     self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
             predictions [ band, :, : ] = fwd_model.reshape( (self.mask.shape))
-       return predictions
+        return predictions
 
 
 
