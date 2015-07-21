@@ -646,7 +646,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.state = state
         self.observations = observations
         try:
-            self.n_bands, self.n_obs = self.observations.shape
+            self.n_obs, self.n_bands = self.observations.shape
         except:
             raise ValueError, "Typically, obs should be (n_obs, n_bands)"
         self.mask = mask
@@ -728,6 +728,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 continue
             # In this bit, we need a loop to go over this period's observations
             # And add the cost/der_cost contribution from each.
+            
             for this_obs_loc in sel_obs.nonzero()[0]:
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
@@ -850,7 +851,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 this_obsop, this_obs, this_extra = self.time_step ( \
                     this_obs_loc )
                 xs = x_params[:, itime]*1
-                dummy, df_0, dummy_fwd = self.calc_mismatch ( this_obsop, \
+                dummy, df_0, dummy_fwd, dummy_gradient = self.calc_mismatch ( this_obsop, \
                     xs, this_obs, self.bu, *this_extra )
                 iloc = 0
                 iiloc = 0
@@ -859,7 +860,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
                         continue                    
                     xxs = xs[i]*1
                     xs[i] += epsilon
-                    dummy, df_1, dummy_fwd = self.calc_mismatch ( this_obsop, \
+                    dummy, df_1, dummy_fwd, dummy_gradient = self.calc_mismatch ( this_obsop, \
                         xs, this_obs, self.bu, *this_extra )                    # Calculate d2f/d2x
                     hs =  (df_1 - df_0)/epsilon
                     if fin_diff == 2: # CONSTANT
