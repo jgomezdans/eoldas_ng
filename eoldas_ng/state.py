@@ -422,7 +422,7 @@ class State ( object ):
             # print "Hessian with epsilon=%e" % epsilon
         # epsilon is defined in order to use der_der_cost methods that
         # evaluate the Hessian numerically
-        epsilon = 1e-5
+        epsilon = 1e-8
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
