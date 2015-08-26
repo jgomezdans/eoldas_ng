@@ -423,7 +423,7 @@ class State ( object ):
             # print "Hessian with epsilon=%e" % epsilon
         # epsilon is defined in order to use der_der_cost methods that
         # evaluate the Hessian numerically
-        epsilon = 1e-5
+        epsilon = 1e-8
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
@@ -431,6 +431,7 @@ class State ( object ):
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
             except OperatorDerDerTypeError:
+
                 # TODO Add the right exception
                 this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
@@ -446,15 +447,16 @@ class State ( object ):
         # the LU decomposition
         a_sps = sp.csc_matrix( the_hessian )
         # LU decomposition object
-        lu_obj = sp.linalg.splu( a_sps )
+        lu_obj = sp.linalg.spilu( a_sps )
         # Now, invert the Hessian in order to get the main diagonal elements
         # of the inverse Hessian (e.g. the variance)
         main_diag = np.zeros_like ( x )
+        b = np.zeros_like ( x )
         for k in xrange(x.size):
-            b = np.zeros_like ( x )
+            #b = np.zeros_like ( x )
             b[k] = 1
             main_diag[k] = lu_obj.solve ( b )[k]
-            
+            b[k] = 0.0
         post_cov = sp.dia_matrix(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
         post_sigma = np.sqrt ( main_diag ).squeeze()
         # Calculate credible intervals, transform them back to real units, and 
