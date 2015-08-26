@@ -30,6 +30,10 @@ class AttributeDict(dict):
     __setattr__ = dict.__setitem__
     
 
+class OperatorDerDerTypeError(Exception):
+    """Raise this error when the wrong type of state (vector vs dictionary) is received by
+       a der_der_cost method"""
+
 
 
          
