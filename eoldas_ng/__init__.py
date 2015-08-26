@@ -4,6 +4,7 @@ from operators import Prior, TemporalSmoother, SpatialSmoother
 from operators import ObservationOperator, ObservationOperatorTimeSeriesGP
 from operators import ObservationOperatorImageGP
 from operators import FIXED, CONSTANT, VARIABLE
+from operators import OperatorDerDerTypeError
 
 from eoldas_helpers import StandardStatePROSAIL
 
