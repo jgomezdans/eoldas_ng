@@ -1210,19 +1210,20 @@ class ObservationOperatorImageGP ( object ):
                 if self.doing_uncertainty:
                     self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                     try: # 
-                        if state_config.values()[i+1] == VARIABLE:
+                        if state_config.values()[i+1] == VARIABLE or \
+                           state_config.values()[i+1] == CONSTANT:
                             # The off diagonal elements of the hessian combine the derivatives of 
                             # two parameters. If both are VARIABLE then use all
                             # What if one constant and one variable then sum.
                             self.second_diag_hess_vect[j:(j+n_elems)] = second_diag_hessian[i, :]
                             second_diag_length += n_elems
-                            print 'VARIABLE, VARIABLE. lenght now ', 
+                            print 'VARIABLE plus VARIABLE or CONSTANT. length now ', 
                             print second_diag_length
-                        elif state_config.values()[i+1] == CONSTANT:
-                            self.second_diag_hess_vect[j] = second_diag_hessian[i, :].sum()
-                            second_diag_length += 1
-                            print'VARIABLE, CONSTANT. length now ', 
-                            print second_diag_length
+                       # elif state_config.values()[i+1] == CONSTANT:
+                        #    self.second_diag_hess_vect[j] = second_diag_hessian[i, :].sum()
+                         #   second_diag_length += 1
+                          #  print'VARIABLE, CONSTANT. length now ', 
+                           # print second_diag_length
                     except IndexError:
                         pass #There are nparam - 1 rows, won't run on last iteration.
                 j += n_elems
