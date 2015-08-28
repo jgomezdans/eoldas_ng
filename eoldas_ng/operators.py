@@ -1079,15 +1079,21 @@ class ObservationOperatorImageGP ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
-        i = 0
+        #i = 0
         cost = 0.
         n = 0
+        # param_spacings is used to space the non zero diagonals in the hessian.
+        # the main diagonal is at 0. a CONSTANT parameter adds a single space
+        # a VARIABLE parameter requires space equal to the number of elements.
+        self.param_spacings = [0]
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
                 n += 1
+                self.param_spacings.append(n)
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
                 n += n_elems
+                self.param_spacings.append(n)
         der_cost = np.zeros ( n )
         # `x_params` should relate to the grid state size, not observations size
         x_params = np.empty ( ( len( x_dict.keys()), \
@@ -1199,16 +1205,16 @@ class ObservationOperatorImageGP ( object ):
         j = 0
         second_diag_length = 0
         if self.doing_uncertainty:
-            self.diag_hess_vect = np.zeros_like ( der_cost )
+            #self.diag_hess_vect = np.zeros_like ( der_cost )
 
             # Create a list for the main and off- diagonal vectors. Currently all
             # the length of the main diagonal but these will be cropped to size later
             self.diags_hess_vect = [None]*len(diags_hessian)
             for i in xrange(len(diags_hessian)):
                 self.diags_hess_vect[i] = np.zeros_like ( der_cost )
-            n_diag_elemns = [0]*len(self.diags_hess_vect[i]) #To count length of vectors as created
+            n_diag_elemns = [0]*len(self.diags_hess_vect) #To count length of vectors as created
 
-            self.second_diag_hess_vect = np.zeros_like ( der_cost )
+            #self.second_diag_hess_vect = np.zeros_like ( der_cost )
             #vector cut down to size after it is filled.
 
             import pdb; pdb.set_trace()
@@ -1327,9 +1333,9 @@ We need:
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
 
         cost, cost_der = self.der_cost ( x_dict, state_config )
-        main_diag = self.diag_hess_vect
-        second_diag = self.second_diag_hess_vect
-        h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
+        main_diag = self.diags_hess_vect[0]
+        second_diag = self.diags_hess_vect[1]
+        h = sp.dia_matrix (( self.diags_hess_vect[0], self.param_spacings[0] ), shape=(N, N)).tolil()
         print h
         print 'calculated hessian'
         return h
@@ -1568,7 +1574,6 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
         """
         i = 0
         cost = 0.
-        n = 0
         n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
