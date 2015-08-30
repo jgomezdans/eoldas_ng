@@ -30,6 +30,10 @@ class AttributeDict(dict):
     __setattr__ = dict.__setitem__
     
 
+class OperatorDerDerTypeError(Exception):
+    """Raise this error when the wrong type of state (vector vs dictionary) is received by
+       a der_der_cost method"""
+
 
 
          
@@ -371,7 +375,10 @@ class TemporalSmoother ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = x[param].size
+                try:
+                    n_elems = x[param].size
+                except ValueError:
+                    raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
         
         h = sp.lil_matrix ( (n ,n ) )
@@ -473,7 +480,10 @@ class SpatialSmoother ( object ):
                 n += 1
                 n_blocks += 1
             elif typo == VARIABLE:
-                n_elems = x[param].size
+                try:
+                    n_elems = x[param].size
+                except ValueError:
+                    raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
                 n_blocks += 1
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
@@ -1219,7 +1229,10 @@ class ObservationOperatorImageGP ( object ):
         Clearly, it must be a matrix, otherwise the sum in the original equation
         does not make sense.
         """
-        N = x.size
+        try:
+            N = x.size
+        except ValueError:
+            raise OperatorDerDerTypeError('Expecting a vector')
         
         
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
