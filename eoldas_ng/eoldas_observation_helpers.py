@@ -478,7 +478,7 @@ class ETMObservations ( ObservationStorage ):
         m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
         return m1 * m2 * m3
 
-    def _get_emulators ( self, model="prosail", emulator_home ):
+    def _get_emulators ( self,  emulator_home, model="prosail" ):
         """Based on the geometry, get the emulators. What could be simpler?"""
         files = glob.glob("%s*.npz" % emulator_home)
         emulator_search_dict = {}
@@ -636,7 +636,7 @@ class SPOTObservations ( ObservationStorage ):
         m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
         return m1 * m2 * m3
 
-    def _get_emulators ( self, model="prosail", emulator_home ):
+    def _get_emulators ( self, emulator_home, model="prosail"):
         """Based on the geometry, get the emulators. What could be simpler?"""
         files = glob.glob("%s*.npz" % emulator_home)
         emulator_search_dict = {}
