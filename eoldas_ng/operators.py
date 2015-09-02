@@ -1132,7 +1132,11 @@ class ObservationOperatorImageGP ( object ):
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model,  partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
-            self.obs_op_grad.append ( partial_derv )
+            # The next couple of lines ensure that the gradient is stored in a full
+            # vector shape
+            temp_me = np.zeros_like ( x_params )
+            temp_me[:, zmask.flatten()] = partial_derv
+            self.obs_op_grad.append ( temp_me )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1182,6 +1186,7 @@ class ObservationOperatorImageGP ( object ):
                 self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
+        self.obs_op_grad.append = np.array ( self.obs_op_grad.append )
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
