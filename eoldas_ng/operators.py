@@ -30,6 +30,10 @@ class AttributeDict(dict):
     __setattr__ = dict.__setitem__
     
 
+class OperatorDerDerTypeError(Exception):
+    """Raise this error when the wrong type of state (vector vs dictionary) is received by
+       a der_der_cost method"""
+
 
 
          
@@ -371,7 +375,10 @@ class TemporalSmoother ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = x[param].size
+                try:
+                    n_elems = x[param].size
+                except ValueError:
+                    raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
         
         h = sp.lil_matrix ( (n ,n ) )
@@ -473,7 +480,10 @@ class SpatialSmoother ( object ):
                 n += 1
                 n_blocks += 1
             elif typo == VARIABLE:
-                n_elems = x[param].size
+                try:
+                    n_elems = x[param].size
+                except ValueError:
+                    raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
                 n_blocks += 1
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
@@ -1122,7 +1132,13 @@ class ObservationOperatorImageGP ( object ):
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model,  partial_derv = \
                 self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
-            self.obs_op_grad.append ( partial_derv )
+            # The next couple of lines ensure that the gradient is stored in a full
+            # vector shape
+            temp_me = np.zeros_like ( x_params )
+            temp_me[:, zmask.flatten()] = partial_derv.T
+            self.obs_op_grad.append ( temp_me.reshape (( x_params.shape[0], 
+                                                        self.nx, self.ny) ) )
+            
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1172,6 +1188,7 @@ class ObservationOperatorImageGP ( object ):
                 self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
+        self.obs_op_grad = np.array ( self.obs_op_grad )
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
@@ -1219,7 +1236,10 @@ class ObservationOperatorImageGP ( object ):
         Clearly, it must be a matrix, otherwise the sum in the original equation
         does not make sense.
         """
-        N = x.size
+        try:
+            N = x.size
+        except ValueError:
+            raise OperatorDerDerTypeError('Expecting a vector')
         
         
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )

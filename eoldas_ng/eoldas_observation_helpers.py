@@ -324,6 +324,7 @@ class ObservationStorage ( object ):
                 the_vaa = None
                 the_fname = None
                 the_spectrum = None
+                the_sensor = None
             this_date += delta
             retval = namedtuple ( "retval", ["have_obs", "sensor", "date", "image", "mask", "emulator",
                                              "sza", "saa", "vza", "vaa", "fname", "spectrum"] )
@@ -336,14 +337,14 @@ class ObservationStorage ( object ):
 class ETMObservations ( ObservationStorage ):
 
     """A class to locate and process ETM+ observations fro disk."""
-    def __init__ ( self, datadir, resample_opts=None ):
+    def __init__ ( self, datadir, emulator_home, resample_opts=None ):
         """The class takes the directory where the files sit. We expect to
         find an XML file with the metadata.
         """
         ObservationStorage.__init__ ( self, datadir, resample_opts )
         self.sensor = "ETM+"
         if not os.path.exists ( datadir ):
-            raise IOError, "%s does not appear to exist in the filesystem?!"
+            raise IOError, "%s does not appear to exist in the filesystem?!" % datadir
 
         self.metadata = []
         for root, dirnames, filenames in os.walk( datadir ):
@@ -357,7 +358,7 @@ class ETMObservations ( ObservationStorage ):
 
         self._setup_sensor()
         self._parse_metadata ()
-        self._get_emulators ()
+        self._get_emulators ( emulator_home )
         self._sort_data ( resample_opts )
 
     def _setup_sensor ( self ):
@@ -478,7 +479,7 @@ class ETMObservations ( ObservationStorage ):
         m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
         return m1 * m2 * m3
 
-    def _get_emulators ( self, model="prosail", emulator_home="/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus/" ):
+    def _get_emulators ( self,  emulator_home, model="prosail" ):
         """Based on the geometry, get the emulators. What could be simpler?"""
         files = glob.glob("%s*.npz" % emulator_home)
         emulator_search_dict = {}
@@ -521,7 +522,7 @@ class SPOTObservations ( ObservationStorage ):
     Landsat or Sentinel2 data.
     """
 
-    def __init__ ( self, datadir, resample_opts=None ):
+    def __init__ ( self, datadir, emulator_home, resample_opts=None,  ):
         """The class takes the directory where the files sit. We expect to
         find an XML file with the metadata.
         """
@@ -537,13 +538,13 @@ class SPOTObservations ( ObservationStorage ):
                 self.metadata.append(os.path.join(root, filename))
 
         self.datadir = datadir
-
+       
         if len ( self.metadata ) < 0:
             raise IOError, "No xml metadatafiles in %s" % self.datadir
 
         self._setup_sensor()
         self._parse_metadata ()
-        self._get_emulators ()
+        self._get_emulators ( emulator_home )
         self._sort_data ( resample_opts )
 
     def _setup_sensor ( self ):
@@ -636,7 +637,7 @@ class SPOTObservations ( ObservationStorage ):
         m2 = np.logical_not ( np.bitwise_and ( nua, 1 ).astype ( np.bool ) )
         return m1 * m2 * m3
 
-    def _get_emulators ( self, model="prosail", emulator_home="/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus/" ):
+    def _get_emulators ( self, emulator_home, model="prosail"):
         """Based on the geometry, get the emulators. What could be simpler?"""
         files = glob.glob("%s*.npz" % emulator_home)
         emulator_search_dict = {}
@@ -669,8 +670,12 @@ class SPOTObservations ( ObservationStorage ):
 if __name__ == "__main__":
     resample_opts = {'box': [546334.113775153,  6274489.49408634,  \
         558032.21126551,  6267491.58431377]}
-    spot_observations = SPOTObservations( "/storage/ucfajlg/MidiPyrenees/SPOT", resample_opts )
-    etm_observations = ETMObservations ("/storage/ucfajlg/MidiPyrenees/ETM7_BOA", resample_opts )
+    spot_observations = SPOTObservations( "/storage/ucfajlg/MidiPyrenees/SPOT",
+                                         "/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus",
+                                         resample_opts )
+    etm_observations = ETMObservations ("/storage/ucfajlg/MidiPyrenees/ETM7_BOA", 
+                                        "/home/ucfajlg/Data/python/eoldas_ng_notebooks/emus",
+                                        resample_opts )
     for s in spot_observations.loop_observations ( "2013-01-01", "2013-12-31" ):
         if s.have_obs:
             print s.date, s.fname

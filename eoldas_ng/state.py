@@ -19,6 +19,7 @@ import scipy.optimize
 import scipy.sparse as sp
 
 from eoldas_utils import *
+from operators import OperatorDerDerTypeError
 
 FIXED = 1
 CONSTANT = 2
@@ -429,7 +430,7 @@ class State ( object ):
             try:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
-            except:
+            except OperatorDerDerTypeError:
                 # TODO Add the right exception
                 this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
