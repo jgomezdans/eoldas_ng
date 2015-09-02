@@ -1136,7 +1136,9 @@ class ObservationOperatorImageGP ( object ):
             # vector shape
             temp_me = np.zeros_like ( x_params )
             temp_me[:, zmask.flatten()] = partial_derv.T
-            self.obs_op_grad.append ( temp_me )
+            self.obs_op_grad.append ( temp_me.reshape (( x_params.shape[0], 
+                                                        self.nx, self.ny) ) )
+            
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1186,7 +1188,7 @@ class ObservationOperatorImageGP ( object ):
                 self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
-        self.obs_op_grad.append = np.array ( self.obs_op_grad.append )
+        self.obs_op_grad = np.array ( self.obs_op_grad )
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
