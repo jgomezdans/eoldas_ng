@@ -180,7 +180,7 @@ class Spectral ( object ):
 
 class ObservationStorage ( object ):
 
-    def __init__ ( self, datadir, emulator_home, resample_opts=None ):
+    def __init__ ( self, datadir, resample_opts=None ):
         self.sensor = None
         pass
 
@@ -343,7 +343,7 @@ class ETMObservations ( ObservationStorage ):
         ObservationStorage.__init__ ( self, datadir, resample_opts )
         self.sensor = "ETM+"
         if not os.path.exists ( datadir ):
-            raise IOError, "%s does not appear to exist in the filesystem?!"
+            raise IOError, "%s does not appear to exist in the filesystem?!" % datadir
 
         self.metadata = []
         for root, dirnames, filenames in os.walk( datadir ):
