@@ -1135,7 +1135,7 @@ class ObservationOperatorImageGP ( object ):
             # The next couple of lines ensure that the gradient is stored in a full
             # vector shape
             temp_me = np.zeros_like ( x_params )
-            temp_me[:, zmask.flatten()] = partial_derv
+            temp_me[:, zmask.flatten()] = partial_derv.T
             self.obs_op_grad.append ( temp_me )
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
