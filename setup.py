@@ -8,7 +8,7 @@ config = {
     'author': 'J Gomez-Dans',
     'url': 'http://github.com/jgomezdans/eoldas_ng/',
     'author_email': 'j.gomez-dans@ucl.ac.uk',
-    'version': '0.2',
+    'version': '0.21alpha',
     'install_requires': ['nose'],
     'packages': ['eoldas_ng'],
     'scripts': [],
