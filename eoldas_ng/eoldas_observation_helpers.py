@@ -324,6 +324,7 @@ class ObservationStorage ( object ):
                 the_vaa = None
                 the_fname = None
                 the_spectrum = None
+                the_sensor = None
             this_date += delta
             retval = namedtuple ( "retval", ["have_obs", "sensor", "date", "image", "mask", "emulator",
                                              "sza", "saa", "vza", "vaa", "fname", "spectrum"] )
