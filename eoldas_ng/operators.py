@@ -1124,7 +1124,7 @@ class ObservationOperatorImageGP ( object ):
         else:
             zmask = self.mask
         self.obs_op_grad = []
-        
+       
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
@@ -1241,13 +1241,96 @@ class ObservationOperatorImageGP ( object ):
         except ValueError:
             raise OperatorDerDerTypeError('Expecting a vector')
         
-        
-        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
+        # derivatives etc all need processing in
+        # scaled state space (i.e. not *transformed*
+        # so do_invtransform=False 
+        x_dict = state._unpack_to_dict ( x, do_invtransform=False)
 
         cost, cost_der = self.der_cost ( x_dict, state_config )
-        main_diag = self.diag_hess_vect
-        h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
-        return h
+
+        # Modifications by Lewis p.lewis@ucl.ac.uk
+        # Thu Sep  3 13:14:41 BST 2015
+
+        # which params do we require?
+        # get the indices
+        variables = [j for j,(k,i) \
+		in enumerate(self.state.state_config.iteritems()) if i == VARIABLE]
+        constants = [j for j,(k,i) \
+                in enumerate(self.state.state_config.iteritems()) if i == CONSTANT]
+
+        # the information we want for the linear part is in
+        # self.obs_op_grad
+
+        variable_terms = self.obs_op_grad[:,variables,:,:]
+        constant_terms = self.obs_op_grad[:,constants,:,:]
+        
+        # the full shape is
+        (Nb, Np, Nx, Ny) = self.obs_op_grad.shape
+        # but we have fewer params for variable and const
+        (Nb, Nvp, Nx, Ny) = variable_terms.shape
+        (Nb, Ncp, Nx, Ny) = constant_terms.shape
+        Nblocks = Nx * Ny
+
+        # we have band uncertainties in self.bu
+        # so the form of C is simplified here (will that always be so?)
+        # (how is a fuller C stored if available?)
+
+        if self.bu.size == Nb:
+          # simplified form of uncertainty
+          sigma2 = self.bu * self.bu
+          ctype = 'simple'
+        else:
+          # do something else with C !!! this is not yet coded
+          # so this is a filler
+          ctype = 'full'
+
+        if ctype == 'simple':
+          # loop over band
+	  for b in xrange(Nb):
+            # lets just deal with variable terms for now
+            data = variable_terms[b].reshape(Nvp,Nblocks)
+            # loop over blocks (can this be done faster?)
+            #
+            # see http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.sparse.block_diag.html
+            # for block method
+            for i in xrange(Nblocks):
+              vector = data[:,i]/self.bu[b]
+              block = (scipy.sparse.coo_matrix(np.outer(vector,vector)),)
+              if i == 0:
+                blocks = block
+              else:
+                blocks += block
+            # form full block diagonal matrix
+            full_block = scipy.sparse.block_diag(blocks)  
+            if b == 0:
+              # first time
+              all_blocks = full_block  
+            else:
+              # add
+              all_blocks = all_blocks + full_block
+
+        # reformat the matrix to order by parameter then location
+        # NB this is just for NvP at the moment
+        full_block = []
+        for p0 in xrange(Nvp):
+          inner_block = []
+          for p1 in xrange(Nvp):
+            # pull the block that we want for this combination
+            # of parameters (p0,p1) for all samples (Nblocks)
+            # BUT, this is diagonal, so pull only the diagonal
+            this_block = all_blocks[p0::Nvp,p1::Nvp].diagonal()
+
+            # make a sparse diagonal matrix from this
+            sp_this_block = scipy.sparse.spdiags(this_block,[0],Nblocks,Nblocks)
+
+            # append in super location (p0,p1)
+            inner_block.append(sp_this_block)
+
+          full_block.append(inner_block)
+        all_blocks = scipy.sparse.bmat(full_block) 
+        # main_diag = self.diag_hess_vect
+        # h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
+        return all_blocks.tolil()
         
         """
         
