@@ -463,17 +463,18 @@ class State ( object ):
         _ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
         _ci_25 = self._unpack_to_dict( x - 0.67*post_sigma, do_invtransform=True )
         _ci_75 = self._unpack_to_dict( x + 0.67*post_sigma, do_invtransform=True )
-
+        # There intervals are OK in transformed space. However, we need to ensure that
+        # e.g. ci_5 <= ci_95 in real coordinates. We do this in the next loop
         ci_5 = {}
         ci_95 = {}
         ci_25 = {}
         ci_75 = {}
 
         for k in self.state_config.iterkeys():
-          ci_5[k]  = np.min(np.array([_ci_5[k],_ci_95[k]]),axis=0)
-          ci_95[k] = np.max(np.array([_ci_5[k],_ci_95[k]]),axis=0)
-          ci_25[k] = np.min(np.array([_ci_25[k],_ci_75[k]]),axis=0)
-          ci_75[k] = np.max(np.array([_ci_25[k],_ci_75[k]]),axis=0)
+            ci_5[k]  = np.min(np.array([_ci_5[k],_ci_95[k]]),axis=0)
+            ci_95[k] = np.max(np.array([_ci_5[k],_ci_95[k]]),axis=0)
+            ci_25[k] = np.min(np.array([_ci_25[k],_ci_75[k]]),axis=0)
+            ci_75[k] = np.max(np.array([_ci_25[k],_ci_75[k]]),axis=0)
 
 
         # Now store uncertainty, and return it to the user in a dictionary
