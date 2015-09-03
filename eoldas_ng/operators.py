@@ -1192,7 +1192,7 @@ class ObservationOperatorImageGP ( object ):
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
-        """Numerical approximation to the Hessian"""
+        """Hessian codes"""
            
         """
         J''(x) = H'(x)^{T}C_{obs}^{T}H'(x) - H''(x)^{T}C_{obs}^{-1}(R - H(x))
@@ -1204,206 +1204,109 @@ class ObservationOperatorImageGP ( object ):
         the misfit of observations and forward model
 
         
-        The first term (linear approximation)
-        ----------------------------------------------------
-        
-        This term is given by H'CH. Annoyingly, in Python, if H is a vector, and
-        C is a matrix, this can be achieved by (H*C).T*H (it returns a matrix).
-        In sparse terms, only C is sparse here (typically diagonal, or not too
-        far off), so we have (H.dot(C)).T.dot(H)
-        
-        The obvious complications are to do with making sure the elements of H
-        and C are consistent.
-        
-        1.- Run der_cost(x ) to make sure self.gradient is current and relates to 
-        x
-        2.- 
-        
-        The second term
-        ----------------------------------
-        
-        This second is slightly more complicated. We need H'', the actual Hessian
-        of the ObsOp. This we get from the emulators directly, but note that the
-        emulator method returns **ALL** the input parameters (ie if you are only
-        bothered about LAI, you still get the Hessian terms for all the other~10
-        parameters), so some cleaning up of H'' is required. Further, we expect
-        H'' to be sparse (only non-zero elements in the locations where 
-        observations are available). 
-
-        I have a problem visualising how this part of the equation works: if H''
-        is a matrix and C_obs is a matrix, then the second term is a vector (the
-        residuals is just a vector transformed by the product of two matrices). 
-        Clearly, it must be a matrix, otherwise the sum in the original equation
-        does not make sense.
         """
         try:
             N = x.size
         except ValueError:
             raise OperatorDerDerTypeError('Expecting a vector')
-        
-        # derivatives etc all need processing in
-        # scaled state space (i.e. not *transformed*
-        # so do_invtransform=False 
+ 
+        # The Hessian calculations, like everything else, are done
+        # in **transformed coordinates**, so we need to pack the 
+        # state vector into a dictionary, ensuring that the variables
+        # are kept in **transformed coordinates**.
         x_dict = state._unpack_to_dict ( x, do_invtransform=False)
-
+        # We need to gather the gradient (and possibly other stuff) that
+        # are calculated in the cost function. We run the ``der_cost`` method
+        # one more time to ensure that the gradients etc are consistent for 
+        # the values given in ``x_dict``
         cost, cost_der = self.der_cost ( x_dict, state_config )
 
-        # Modifications by Lewis p.lewis@ucl.ac.uk
-        # Thu Sep  3 13:14:41 BST 2015
+        # We get the locations of the variable and constant parameters
+        # The fixed parameters are just ignored, so don't need to bother about them
+        variables = [ j \
+                  for j,(k,i) in enumerate( self.state.state_config.iteritems()) \
+                  if i == VARIABLE ]
+        constants = [ j \
+                  for j,(k,i) in enumerate(self.state.state_config.iteritems())  \
+                  if i == CONSTANT ]
 
-        # which params do we require?
-        # get the indices
-        variables = [j for j,(k,i) \
-		in enumerate(self.state.state_config.iteritems()) if i == VARIABLE]
-        constants = [j for j,(k,i) \
-                in enumerate(self.state.state_config.iteritems()) if i == CONSTANT]
-
-        # the information we want for the linear part is in
-        # self.obs_op_grad
+        # For the linear component of the Hessian, we need access to the gradient
+        # of the observation operators. This has been stored in ``self.obs_op_grad``
+        # The array has shape ( n_bands, n_parameters, nx, ny)
+        # We get views to the variable terms and constant terms next
 
         variable_terms = self.obs_op_grad[:,variables,:,:]
         constant_terms = self.obs_op_grad[:,constants,:,:]
         
-        # the full shape is
+        # the full shape is ( n_bands, n_parameters, nx, ny)
         (Nb, Np, Nx, Ny) = self.obs_op_grad.shape
         # but we have fewer params for variable and const
         (Nb, Nvp, Nx, Ny) = variable_terms.shape
         (Nb, Ncp, Nx, Ny) = constant_terms.shape
+        # We will create the Hessian approximation by building up blocks covering
+        # the entire state grid per parameter. Note that this is not how the
+        # rest of eoldas expects the matrix, so we'll have to re-arrange things
+        # later
         Nblocks = Nx * Ny
 
         # we have band uncertainties in self.bu
         # so the form of C is simplified here (will that always be so?)
         # (how is a fuller C stored if available?)
-
         if self.bu.size == Nb:
-          # simplified form of uncertainty
-          sigma2 = self.bu * self.bu
-          ctype = 'simple'
+            # simplified form of uncertainty, assumed constant per band
+            ctype = 'simple'
         else:
-          # do something else with C !!! this is not yet coded
-          # so this is a filler
-          ctype = 'full'
+            # do something else with C !!! this is not yet coded
+            # so this is a filler
+            ctype = 'full'
 
         if ctype == 'simple':
-          # loop over band
-	  for b in xrange(Nb):
-            # lets just deal with variable terms for now
-            data = variable_terms[b].reshape(Nvp,Nblocks)
-            # loop over blocks (can this be done faster?)
-            #
-            # see http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.sparse.block_diag.html
-            # for block method
-            for i in xrange(Nblocks):
-              vector = data[:,i]/self.bu[b]
-              block = (scipy.sparse.coo_matrix(np.outer(vector,vector)),)
-              if i == 0:
-                blocks = block
-              else:
-                blocks += block
-            # form full block diagonal matrix
-            full_block = scipy.sparse.block_diag(blocks)  
-            if b == 0:
-              # first time
-              all_blocks = full_block  
-            else:
-              # add
-              all_blocks = all_blocks + full_block
-
+            # loop over bands
+            for b in xrange(Nb):
+                # lets just deal with variable terms for now
+                data = variable_terms[b].reshape( Nvp,Nblocks )
+                # loop over blocks (can this be done faster?)
+                
+                # see http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.sparse.block_diag.html
+                # for block method
+                for i in xrange(Nblocks):
+                    vector = data[:,i]/self.bu[b]
+                    block = (sp.coo_matrix(np.outer(vector,vector)),)
+                    if i == 0:
+                        blocks = block
+                    else:
+                        blocks += block
+                    # form full block diagonal matrix
+                full_block = sp.block_diag(blocks)  
+                if b == 0:
+                    # first band
+                    all_blocks = full_block  
+                else:
+                    # add
+                    all_blocks = all_blocks + full_block
+            
         # reformat the matrix to order by parameter then location
         # NB this is just for NvP at the moment
         full_block = []
         for p0 in xrange(Nvp):
-          inner_block = []
-          for p1 in xrange(Nvp):
-            # pull the block that we want for this combination
-            # of parameters (p0,p1) for all samples (Nblocks)
-            # BUT, this is diagonal, so pull only the diagonal
-            this_block = all_blocks[p0::Nvp,p1::Nvp].diagonal()
+            inner_block = []
+            for p1 in xrange(Nvp):
+                # pull the block that we want for this combination
+                # of parameters (p0,p1) for all samples (Nblocks)
+                # BUT, this is diagonal, so pull only the diagonal
+                this_block = all_blocks[p0::Nvp,p1::Nvp].diagonal()
 
-            # make a sparse diagonal matrix from this
-            sp_this_block = scipy.sparse.spdiags(this_block,[0],Nblocks,Nblocks)
+                # make a sparse diagonal matrix from this
+                sp_this_block = scipy.sparse.spdiags(this_block,[0],Nblocks,Nblocks)
 
-            # append in super location (p0,p1)
-            inner_block.append(sp_this_block)
+                # append in super location (p0,p1)
+                inner_block.append(sp_this_block)
 
-          full_block.append(inner_block)
+            full_block.append(inner_block)
         all_blocks = scipy.sparse.bmat(full_block) 
-        # main_diag = self.diag_hess_vect
-        # h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
         return all_blocks.tolil()
         
-        """
-        
-        N = x.size
-        
-        h = sp.lil_matrix ( ( N, N ), dtype=np.float32 )
-        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-        
-        # We need the gradient of the observation operator. This is stored as
-        # a list in the object, convert it to an array
-        jacobian = np.array ( self.obs_op_grad )
-        # The jacobian is Nbands, Nx*Ny, Nparams
-        ## Here we need to do the linear bit of the matrix
-        ## this means re-arranging the jacobian per observation
-        
-        i_unmasked = 0
-        n_grid = self.nx*self.ny # The grid size
-        n_obs = self.mask.flatten().sum() # The number of grid points with
-                                          # observations availabl
-        ###TODO define select pars, the selected parameters
-        ###TODO Need to cope with CONSTANT parameters too
-        # Now, loop over all pixels...
-        n_pars = jacobian.shape[-1] # Number of parameters
-        # Location of the parameters we'll be using. Note that this includes
-        # both CONSTANT and VARIABLE parameters!
-        sel_pars = [ i \
-            for ( i, (k,v)) in enumerate ( state_config.iteritems() ) if v > 1 ]
-        sel_pars = np.array ( sel_pars )
-        for ipxl in xrange ( n_grid  ):
-            if self.mask.flatten()[ipxl]:
-                # This pixel isn't masked out...
-                # Start by just selecting the jacobian parameters
-                #############################################################
-                ## THIS IS OVERCOMPLICATED, NEED TO CALL THE GP DIRECTLY
-                ## and use that information here
-                #############################################################
-                Hs = np.zeros ( ( len(sel_pars), len(sel_pars) ))
-                for b in xrange ( self.n_bands):
-                    # Need to check that jacobian is Nbands, Nx*Ny, Npars
-                    jac = jacobian [ b, ipxl, sel_pars] 
-                        
-                #############################################################
-                ## The different resolution effect needs to be taken here
-                #############################################################
-                    #Hs = np.matrix ( jac ).T * np.matrix( \
-                        #np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) * \
-                        #np.matrix(jac)
-                    C = np.matrix( \
-                        np.diag(np.ones(len(sel_pars))/(self.bu[b]**2))) 
-                    Hs += (np.matrix(jac).T*np.matrix(jac))*C
-
-                # At this point, we have calcualted H'(x)C^{-1}H(x) for this
-                # location in the grid, and need to place it in the right
-                # place in the output Hessian
-                for i in sel_pars:
-                    for j in sel_pars: 
-                        h [ i*n_grid + ipxl, j*n_grid + ipxl ] = Hs [ i, j ]
-        # So this is the first approximation to the Hessian, bar the above todos
-        return h # linear_approx
-        
-        
-        
-        
-        
-        #### This next bit is the calculation of (R-H(x))
-        ##err = np.zeros_like ( self.observations )
-        ##for band in xrange ( self.n_bands ):
-            ##err[band, self.mask] = (  self.observations[band, self.mask] - \
-                ##self.fwd_modelled_obs[band, self.mask] )
-            
-       
-        
-        ##########################################################################
+"""        ##########################################################################
         #### Numerical hessian code stuff                                       ##
         ##########################################################################
         ##df_0 = self.der_cost ( x_dict, state_config )[1]
@@ -1645,7 +1548,14 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
         for band in xrange ( self.n_bands ):
             fwd_model = np.concatenate(np.array([s[0][0] for s in z])  )
             partial_derv = np.concatenate(np.array([s[1][0] for s in z]), axis=0)
-            self.obs_op_grad.append ( partial_derv )
+            # The next couple of lines ensure that the gradient is stored in a full
+            # vector shape
+            temp_me = np.zeros_like ( x_params )
+            temp_me[:, zmask.flatten()] = partial_derv.T
+            self.obs_op_grad.append ( temp_me.reshape (( x_params.shape[0], 
+                                                        self.nx, self.ny) ) )
+   
+   
             if self.factor is not None:
                 # Multi-resolution! Need to integrate over the low resolution
                 # footprint using downsample in `eoldas_utils`
@@ -1695,6 +1605,7 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
                 self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
+        self.obs_op_grad = np.array ( self.obs_op_grad )
         return cost, der_cost
 
 
