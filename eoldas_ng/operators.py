@@ -1203,26 +1203,13 @@ class ObservationOperatorImageGP ( object ):
                             partial_derv[:,param_not_fixed[row+i]]*partial_derv[:,param_not_fixed[row]]/self.bu[band]**2 ).T
                     
 
-            ####if self.doing_uncertainty:
-            ####    diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
-            ####    for row in range(second_diag_hessian.shape[0]):
-            ####        second_diag_hessian[row, zmask.flatten()] += (
-            ####            partial_derv[:,row+1]*partial_derv[:,row]/self.bu[band]**2 ).T
-
-        j = 0
-        ####second_diag_length = 0
         if self.doing_uncertainty:
-            #import pdb; pdb.set_trace()
-            #self.diag_hess_vect = np.zeros_like ( der_cost )
-
             # Create a list for the main and off- diagonal vectors. Currently all
             # the length of the main diagonal but these will be cropped to size later
             self.diags_hess_vect = [None]*len(self.param_spacings)
             for i in xrange(len(self.param_spacings)):
                 self.diags_hess_vect[i] = np.zeros_like ( der_cost )
             n_diag_elemns = [0]*len(self.diags_hess_vect) #To count length of vectors as created
-
-            #self.second_diag_hess_vect = np.zeros_like ( der_cost )
             #vector cut down to size after it is filled.
 
 
@@ -1237,26 +1224,16 @@ class ObservationOperatorImageGP ( object ):
                 j += n_elems
 
         if self.doing_uncertainty:
-            #import pdb; pdb.set_trace()
             # Iterate through the parameter types 
-            #for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             for  i, param_index in enumerate (param_not_fixed) :
                 print " looping through non fixed parameters: i= ", i, " param _index= ", param_index
                 param = state_config.keys()[param_index]
                 typo = state_config.values()[param_index]
             #To iterate through pairs of parameter types
-                j = 0
-                #for ii, (secondParam, secondTypo) in enumerate ( state_config.iteritems()) :
                 for ii in xrange (0,len(n_diag_elemns)):
-                    print "sub loop: ii= ", ii, " i+ii = ", i+ii
-                    try:
-                        secondTypo = state_config.values()[param_not_fixed[i+ii]]
-                    except IndexError:
-                        print "This index ", i+ii, "is out of range of param_not_fixed"
-                    print "Type1 = ", typo, "Type2 = ", secondTypo
-                    print "j = ", j
                     if typo == CONSTANT:
                         try: 
+                            secondTypo = state_config.values()[param_not_fixed[i+ii]]
                             if secondTypo == CONSTANT:
                                 # The off diagonal elements of the hessian combine the derivatives of 
                                 # two parameters. If both are constant then sum
@@ -1275,8 +1252,6 @@ class ObservationOperatorImageGP ( object ):
                         except IndexError:
                             print 'number of off diagonal elements:'
                             print n_diag_elemns
-                            #pass #There are nparam - 1 rows, won't run on last iteration.
-                        #j += 1
                     elif typo == VARIABLE:
                         n_elems = x_dict[param].size
                         try:
@@ -1291,57 +1266,11 @@ class ObservationOperatorImageGP ( object ):
                         except IndexError:
                             print 'number of off diagonal elements:'
                             print n_diag_elemns
-                            #pass #There are nparam - 1 rows, won't run on last iteration.
-                    #j += n_elems
 
-
-   #     for  i, (param, typo) in enumerate ( state_config.iteritems()) :
-    #        if typo == CONSTANT:
-     #           der_cost[j] = the_derivatives[i, :].sum()
-      #          if self.doing_uncertainty:
-       #             self.diags_hess_vect[0][j] = diags_hessian[0][i, :].sum()
-        #            try: 
-         #               if state_config.values()[i+1] == CONSTANT:
-          #                  # The off diagonal elements of the hessian combine the derivatives of 
-           #                 # two parameters. If both are constant then sum
-            #                self.diags_hess_vect[1][j] = diags_hessian[1][i, :].sum()
-             #               n_diag_elemns[1] += 1
-              #              print 'CONSTANT, CONSTANT. length now ', 
-               #             print n_diag_elemns[1]
-                #    except IndexError:
-                 #       print 'number of off diagonal elements:'
-                  #      print n_diag_elemns
-                   #     pass #There are nparam - 1 rows, won't run on last iteration.
-   #             j += 1
-    #        elif typo == VARIABLE:
-     #           n_elems = x_dict[param].size
-      #          der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
-       #         if self.doing_uncertainty:
-        #            self.diags_hess_vect[0][j:(j+n_elems)] = diags_hessian[0][i, :]
-         #           try: # 
-          #              if state_config.values()[i+1] in (VARIABLE, CONSTANT): # or \
-           #                #state_config.values()[i+1] == CONSTANT:
-            #                print state_config.values()[i+1]
-             #               # The off diagonal elements of the hessian combine the derivatives of 
-              #              # two parameters. If both are VARIABLE then use all
-               #             # What if one constant and one variable then sum.
-                #            self.diags_hess_vect[1][j:(j+n_elems)] = second_diag_hessian[i, :]
-                 #           n_diag_elemns[1] += n_elems
-                  #          print 'VARIABLE plus VARIABLE or CONSTANT. length now ', 
-                   #         print n_diag_elemns[1]
-  #                  except IndexError as e:
-   #                     print 'number of off diagonal elements:'
-    #                    print n_diag_elemns
-     #                   pass #There are nparam - 1 rows, won't run on last iteration.
-      #          j += n_elems
         if self.doing_uncertainty:
-        #    n_diag_elemns[0] = j
-            #self.diags_hess_vect[1] = self.diags_hess_vect[1][0:n_diag_elemns[1]]
             import pdb; pdb.set_trace()
             self.diags_hess_vect = [x[0:n] for i, (x,n) in enumerate(zip(self.diags_hess_vect, n_diag_elemns))]
         self.gradient = der_cost # Store the gradient, we might need it later
-        #if self.doing_uncertainty:
-            #import pdb; pdb.set_trace()
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
