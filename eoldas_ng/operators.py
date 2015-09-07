@@ -1207,7 +1207,7 @@ class ObservationOperatorImageGP ( object ):
         """
         try:
             N = x.size
-        except ValueError:
+        except AttributeError:
             raise OperatorDerDerTypeError('Expecting a vector')
  
         # The Hessian calculations, like everything else, are done

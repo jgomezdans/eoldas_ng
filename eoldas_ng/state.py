@@ -354,7 +354,7 @@ class State ( object ):
         start_time = time.clock()
         if the_bounds is None:
             the_bounds = self._get_bounds_list()        
-        if type(x0) == type ( {} ):
+        if (type(x0) == type ( {} ) ) or ( type(x0) == type ( OrderedDict() ) ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif x0 is None:
@@ -411,7 +411,6 @@ class State ( object ):
         selected state grid."""
         
         
-        
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
         #cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
@@ -428,12 +427,11 @@ class State ( object ):
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
             try:
+               this_hessian = the_op.der_der_cost ( x_dict, \
+                    self.state_config, self, epsilon=epsilon )
+	    except OperatorDerDerTypeError:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
-            except OperatorDerDerTypeError:
-                # TODO Add the right exception
-                this_hessian = the_op.der_der_cost ( x_dict, \
-                    self.state_config, self, epsilon=epsilon )
             if self.verbose:
                 print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
                     op_name )
@@ -485,7 +483,7 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-        
+        retval['hessian'] =  the_hessian
         return retval
         
     def cost ( self, x ):
