@@ -1255,6 +1255,7 @@ class ObservationOperatorImageGP ( object ):
                     elif typo == VARIABLE:
                         n_elems = x_dict[param].size
                         try:
+                            secondTypo = state_config.values()[param_not_fixed[i+ii]]
                             if secondTypo in (VARIABLE, CONSTANT):
                                 #print state_config.values()[i+1]
                                 # The off diagonal elements of the hessian combine the derivatives of 
