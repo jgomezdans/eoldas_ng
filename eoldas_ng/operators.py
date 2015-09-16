@@ -1343,7 +1343,6 @@ We need:
 
         cost, cost_der = self.der_cost ( x_dict, state_config )
         main_diag = self.diags_hess_vect[0]
-        second_diag = self.diags_hess_vect[1]
         # diags_hess_vect contains the diagonals for the upper half of the matrix only
         diagonals = [-1*diag for diag in self.diags_hess_vect[1:]] + self.diags_hess_vect
         spacings =  [-1*x for x in self.param_spacings[1:]] + self.param_spacings
