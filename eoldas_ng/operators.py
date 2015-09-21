@@ -721,6 +721,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
             j += 1
         self.fwd_modelled_obs = []
         istart_doy = self.state_grid[0]
+        
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
             sel_obs = np.where ( np.logical_and ( self.mask[:, 0] > istart_doy, \

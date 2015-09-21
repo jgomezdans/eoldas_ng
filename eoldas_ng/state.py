@@ -350,7 +350,7 @@ class State ( object ):
             Whether to calculate the uncertainty or not.
         
         """
-
+        
         start_time = time.clock()
         if the_bounds is None:
             the_bounds = self._get_bounds_list()        
@@ -383,6 +383,11 @@ class State ( object ):
                 
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
+        ### horrible HACK
+        for k,v in self.state_config.iteritems():
+            
+            if self.invtransformation_dict.has_key ( k ) and v == FIXED:
+                retval_dict['real_map'][k] = self.default_values[k]
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
             do_invtransform=False )
         if do_unc:
@@ -488,7 +493,6 @@ class State ( object ):
         
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
-         
          x_dict = self._unpack_to_dict ( x )
          # Store the parameter dictionary in case we need it later for e.g.
          # crossvalidation
