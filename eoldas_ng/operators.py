@@ -721,6 +721,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
             j += 1
         self.fwd_modelled_obs = []
         istart_doy = self.state_grid[0]
+        
         for itime, tstep in enumerate ( self.state_grid[1:] ):
             # Select all observations between istart_doy and tstep
             sel_obs = np.where ( np.logical_and ( self.mask[:, 0] > istart_doy, \
@@ -1207,7 +1208,7 @@ class ObservationOperatorImageGP ( object ):
         """
         try:
             N = x.size
-        except ValueError:
+        except AttributeError:
             raise OperatorDerDerTypeError('Expecting a vector')
  
         # The Hessian calculations, like everything else, are done
