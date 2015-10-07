@@ -667,6 +667,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+
         
     
     def der_cost ( self, x_dict, state_config ):
@@ -910,8 +911,6 @@ class ObservationOperatorImageGP ( object ):
              
          
         """
-        print 'I have started an observation operatorImageGP'
-
         self.state = state
         self.observations = observations
         try:
@@ -938,9 +937,6 @@ class ObservationOperatorImageGP ( object ):
         self.bw = bw
         self.factor = factor
         self.fwd_modelled_obs = np.zeros_like ( self.observations )
-        self.doing_uncertainty = False
-
-        print 'I have started an observation operatorImageGP'
 
     def first_guess ( self, state_config, do_unc=False ):
         """
@@ -1079,23 +1075,16 @@ class ObservationOperatorImageGP ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
-        #i = 0
+        i = 0
         cost = 0.
         n = 0
-        # param_spacings is used to space the non zero diagonals in the hessian.
-        # the main diagonal is at 0. a CONSTANT parameter adds a single space
-        # a VARIABLE parameter requires space equal to the number of elements.
-        self.param_spacings = [0]
+        n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
                 n += 1
-                self.param_spacings.append(n)
-                
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
                 n += n_elems
-                self.param_spacings.append(n)
-        del self.param_spacings[-1] #the first diagonal is a zero, don't need last spacing.
         der_cost = np.zeros ( n )
         # `x_params` should relate to the grid state size, not observations size
         x_params = np.empty ( ( len( x_dict.keys()), \
@@ -1104,9 +1093,11 @@ class ObservationOperatorImageGP ( object ):
         ii = 0
         # `the_derivatives` should relate to the grid state size, not 
         # observations size
-        the_derivatives = np.zeros((len( x_dict.keys()), self.nx_state * self.ny_state))
+        the_derivatives = np.zeros ( ( len( x_dict.keys()), \
+                self.nx_state * self.ny_state ) )
         # Define a 2D array same size as the_derivatives to store the main diagonal
         # Hessian (linear approximation term)
+        diag_hessian = np.zeros_like ( the_derivatives )
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
@@ -1176,101 +1167,20 @@ class ObservationOperatorImageGP ( object ):
                 ####self.observations[band, self.mask] ) \
                 ####/self.bu[band]**2)[:, None]).T
 	      
-            ##Using the diagonal because we assume that the observation uncertainty is diagonal
-            ##H^TCH
-
-            # The hessian main diagonal and off diagonals are made up of products of the derrivatives.
-            # Each element of the Hessian is
-            # (Sum over k for k=1 to the number of obs) (tau_k (dH_k/x_i)(dH_k/dx_i)  )
-            # Each column of partial_derv corresponds to an observation and each row to 
-            # A parameter eg, LAI, cab, soil moisture. so we take all possible products 
-            # within a column. 
-            # To easily calculate the off diagonal elements it is useful to strip out the FIXED
-            #parameters at this point.
-
-            #######diag_hessian = np.zeros_like ( the_derivatives )
-            ######second_diag_hessian = np.zeros_like ( the_derivatives[0:-1, :] )
-            if self.doing_uncertainty:
-                param_not_fixed = [i for i, typo in enumerate(state_config.values()) if typo in (CONSTANT, VARIABLE)]
-
-                diag_hessian = np.zeros_like ( the_derivatives[0:len(param_not_fixed),:] )
-                diags_hessian = [diag_hessian] + [ np.zeros_like(diag_hessian[0:-i, :]) 
-                                                   for i in xrange(1, len(param_not_fixed)) ]
-
-                for i, diag in enumerate(diags_hessian):
-                    for row in xrange(diag.shape[0]):
-                        diags_hessian[i][row, zmask.flatten()] += (
-                            partial_derv[:,param_not_fixed[row+i]]*partial_derv[:,param_not_fixed[row]]/self.bu[band]**2 ).T
-                    
-
-        if self.doing_uncertainty:
-            # Create a list for the main and off- diagonal vectors. Currently all
-            # the length of the main diagonal but these will be cropped to size later
-            self.diags_hess_vect = [None]*len(self.param_spacings)
-            for i in xrange(len(self.param_spacings)):
-                self.diags_hess_vect[i] = np.zeros_like ( der_cost )
-            n_diag_elemns = [0]*len(self.diags_hess_vect) #To count length of vectors as created
-            #vector cut down to size after it is filled.
-
-
+	    diag_hessian[:, zmask.flatten()] += ( partial_derv**2/self.bu[band]**2 ).T
+        
         j = 0
+        self.diag_hess_vect = np.zeros_like ( der_cost )
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
                 der_cost[j] = the_derivatives[i, :].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
                 j += 1
             elif typo == VARIABLE:
                 n_elems = x_dict[param].size
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
                 j += n_elems
-
-        if self.doing_uncertainty:
-            # Iterate through the parameter types 
-            for  i, param_index in enumerate (param_not_fixed) :
-                print " looping through non fixed parameters: i= ", i, " param _index= ", param_index
-                param = state_config.keys()[param_index]
-                typo = state_config.values()[param_index]
-            #To iterate through pairs of parameter types
-                for ii in xrange (0,len(n_diag_elemns)):
-                    if typo == CONSTANT:
-                        try: 
-                            secondTypo = state_config.values()[param_not_fixed[i+ii]]
-                            if secondTypo == CONSTANT:
-                                # The off diagonal elements of the hessian combine the derivatives of 
-                                # two parameters. If both are constant then sum
-                                self.diags_hess_vect[ii][n_diag_elemns[ii]] = diags_hessian[ii][i, :].sum()
-                                n_diag_elemns[ii] += 1
-                                print 'CONSTANT, CONSTANT. length now ', 
-                                print n_diag_elemns[ii]
-                            elif secondTypo ==  VARIABLE:
-                                # The off diagonal elements of the hessian combine the derivatives of 
-                                # two parameters. If both are VARIABLE then use all
-                                # What if one constant and one variable then sum.
-                                self.diags_hess_vect[ii][n_diag_elemns[ii]:(n_diag_elemns[ii]+n_elems)] = diags_hessian[ii][i, :]
-                                n_diag_elemns[ii] += n_elems
-                                print 'VARIABLE plus VARIABLE or CONSTANT. length now ', 
-                                print n_diag_elemns[ii]
-                        except IndexError:
-                            print 'number of off diagonal elements:'
-                            print n_diag_elemns
-                    elif typo == VARIABLE:
-                        n_elems = x_dict[param].size
-                        try:
-                            secondTypo = state_config.values()[param_not_fixed[i+ii]]
-                            if secondTypo in (VARIABLE, CONSTANT):
-                                #print state_config.values()[i+1]
-                                # The off diagonal elements of the hessian combine the derivatives of 
-                                # two parameters. If both are VARIABLE then use all
-                                # What if one constant and one variable then sum.
-                                self.diags_hess_vect[ii][n_diag_elemns[ii]:(n_diag_elemns[ii]+n_elems)] = diags_hessian[ii][i, :]
-                                n_diag_elemns[ii] += n_elems
-                                print 'VARIABLE plus VARIABLE or CONSTANT. length now ', n_diag_elemns[ii]
-                        except IndexError:
-                            print 'number of off diagonal elements:'
-                            print n_diag_elemns
-
-        if self.doing_uncertainty:
-            import pdb; pdb.set_trace()
-            self.diags_hess_vect = [x[0:n] for i, (x,n) in enumerate(zip(self.diags_hess_vect, n_diag_elemns))]
         self.gradient = der_cost # Store the gradient, we might need it later
         return cost, der_cost
     
@@ -1319,20 +1229,6 @@ class ObservationOperatorImageGP ( object ):
         Clearly, it must be a matrix, otherwise the sum in the original equation
         does not make sense.
         """
-
-        try:
-            N = x.size
-        except ValueError:
-            raise OperatorDerDerTypeError('Expecting a vector')
-
-        """
-        NLP: H''(x) is a vector of matricies and each matrix must be post multiplied by C(R-H(x)) to give a vector of vectors that is then assembled as a matrix to form the second term.
-We need:
-        (R-H(x)) <- this must have been calculated in der_cost
-        C  <- We are already using this in the first part of the Hessian
-        H''  <-- get this from the GP. This must be in state somewhere?
-        """
-        self.doing_uncertainty = True
         try:
             N = x.size
         except ValueError:
@@ -1342,16 +1238,8 @@ We need:
         x_dict = state._unpack_to_dict ( x, do_invtransform=True )
 
         cost, cost_der = self.der_cost ( x_dict, state_config )
-        main_diag = self.diags_hess_vect[0]
-        # diags_hess_vect contains the diagonals for the upper half of the matrix only
-        diagonals = [-1*diag for diag in self.diags_hess_vect[1:]] + self.diags_hess_vect
-        spacings =  [-1*x for x in self.param_spacings[1:]] + self.param_spacings
-
-        import pdb; pdb.set_trace()
-
-        h = sp.diags(diagonals, spacings, shape=(N, N), format='lil')
-        print h
-        print 'calculated hessian'
+        main_diag = self.diag_hess_vect
+        h = sp.dia_matrix (( self.diag_hess_vect, 0 ), shape=(N, N)).tolil()
         return h
         
         """
@@ -1438,6 +1326,19 @@ We need:
             ##x[i] = xx0
         ##return sp.lil_matrix ( h )
 """
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1589,6 +1490,7 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
         i = 0
         cost = 0.
         n = 0
+        n = 0
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
                 n += 1
@@ -1705,32 +1607,4 @@ class ObservationOperatorImageGPParallel ( ObservationOperatorImageGP ):
         self.gradient = der_cost # Store the gradient, we might need it later
         return cost, der_cost
 
-
-         
-class ObservationOperatorImageGP_hessTest (ObservationOperatorImageGP):
-    """A GP-based observation operator"""
-    def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
-            factor=None, band_pass=None, bw=None, per_band=False ):
-    
-        ObservationOperatorImageGP.__init__ ( self, state_grid, state, 
-                                              observations, mask, emulators, bu,
-                                              factor=factor, band_pass=band_pass,
-                                              bw=bw, per_band=per_band )
-        
-                         
-    def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
-        """Numerical approximation to the Hessian"""
-
-        N = x.size
-        h = np.zeros((N,N))
-        x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-        df_0 = self.der_cost ( x_dict, state_config )[1]
-        for i in xrange(N):
-            xx0 = 1.*x[i]
-            x[i] = xx0 + epsilon
-            x_dict = state._unpack_to_dict ( x, do_invtransform=True )
-            df_1 = self.der_cost ( x_dict, state_config )[1]
-            h[i,:] = (df_1 - df_0)/epsilon
-            x[i] = xx0
-        return sp.lil_matrix ( h )                   
 
