@@ -350,11 +350,11 @@ class State ( object ):
             Whether to calculate the uncertainty or not.
         
         """
-
+        
         start_time = time.clock()
         if the_bounds is None:
             the_bounds = self._get_bounds_list()        
-        if type(x0) == type ( {} ):
+        if (type(x0) == type ( {} ) ) or ( type(x0) == type ( OrderedDict() ) ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif x0 is None:
@@ -383,6 +383,11 @@ class State ( object ):
                 
         retval_dict = {}
         retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
+        ### horrible HACK
+        for k,v in self.state_config.iteritems():
+            
+            if self.invtransformation_dict.has_key ( k ) and v == FIXED:
+                retval_dict['real_map'][k] = self.default_values[k]
         retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
             do_invtransform=False )
         if do_unc:
@@ -411,7 +416,6 @@ class State ( object ):
         selected state grid."""
         
         
-        
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
         #cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
@@ -423,17 +427,16 @@ class State ( object ):
             # print "Hessian with epsilon=%e" % epsilon
         # epsilon is defined in order to use der_der_cost methods that
         # evaluate the Hessian numerically
-        epsilon = 1e-5
+        epsilon = 1e-8
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
             try:
+               this_hessian = the_op.der_der_cost ( x_dict, \
+                    self.state_config, self, epsilon=epsilon )
+	    except OperatorDerDerTypeError:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
-            except OperatorDerDerTypeError:
-                # TODO Add the right exception
-                this_hessian = the_op.der_der_cost ( x_dict, \
-                    self.state_config, self, epsilon=epsilon )
             if self.verbose:
                 print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
                     op_name )
@@ -485,12 +488,11 @@ class State ( object ):
         retval['real_ci25pc'] = ci_25
         retval['real_ci75pc'] = ci_75
         retval['post_sigma'] = post_sigma
-        
+        retval['hessian'] =  the_hessian
         return retval
         
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
-         
          x_dict = self._unpack_to_dict ( x )
          # Store the parameter dictionary in case we need it later for e.g.
          # crossvalidation
