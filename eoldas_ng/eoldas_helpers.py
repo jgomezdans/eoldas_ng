@@ -37,7 +37,7 @@ import numpy as np
 import time
 
 from collections import OrderedDict
-from state import State
+from state import State, MetaState
 
 class StandardStatePROSAIL ( State ):
     """A standard state configuration for the PROSAIL model"""
@@ -60,6 +60,33 @@ class StandardStatePROSAIL ( State ):
         self.default_values['ala'] = 70.
         self.default_values['bsoil'] = 0.5
         self.default_values['psoil'] = 0.9
+        
+        self.metadata = MetaState()
+        self.metadata.add_variable ( "n","None", "PROSPECT leaf layers", "leaf_layers" )
+        self.metadata.add_variable ( "cab","microgram per centimetre^2", 
+                                "PROSPECT leaf chlorophyll content",
+                                "cab" )
+        self.metadata.add_variable ( "car",
+                                "microgram per centimetre^2", 
+                                "PROSPECT leaf carotenoid content",
+                                "car" )
+        self.metadata.add_variable ( "cbrown","fraction", 
+                                    "PROSPECT leaf senescent fraction",
+                                    "cbrown" )
+        self.metadata.add_variable ( "cw","centimetre", 
+                                    "PROSPECT equivalent leaf water",
+                                    "cw" )
+        self.metadata.add_variable ( "cm",
+                                    "gram per centimeter^2", "PROSPECT leaf dry matter",
+                                    "cm" )
+        self.metadata.add_variable ( "lai","meter^2 per meter^2", "Leaf Area Index",
+                                    "lai" )
+        self.metadata.add_variable ( "ala","degree", "Average leaf angle",
+                                    "ala" )
+        self.metadata.add_variable ( "bsoil","", "Soil brightness",
+                                    "bsoil" )
+        self.metadata.add_variable ( "psoil","", "Soil moisture term",
+                                    "psoil" )
         
         self.operators = {}
         self.n_params = self._state_vector_size ()

@@ -25,7 +25,17 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
-
+Variable_name = collections.namedtuple ( "variable_name", 
+                                        "units long_name std_name" )
+class MetaState ( object ):
+    """A class to store metadata on the state, such as time, location, units....
+    This is required to generate CF compliant netCDF output"""
+    def __init__ ( self ):
+        self.metadata = {}
+    def add_variable ( self, varname, units, long_name, std_name ):
+        self.metadata[varname] = Variable_name ( units=units, 
+                        long_name=long_name, std_name=std_name )
+        
 class State ( object ):
     
     """A state-definition class
@@ -49,7 +59,7 @@ class State ( object ):
        
     def __init__ ( self, state_config, state_grid, default_values, \
             parameter_min, parameter_max, optimisation_options=None, \
-            output_name=None, verbose=False ):
+            output_name=None, verbose=False, netcdf=False ):
         """State constructor. The state defines the problem we will try
         to solve and as such requires quite  a large number of parameters
         
@@ -81,6 +91,8 @@ class State ( object ):
             the timestamp.
         verbose: boolean
             Whether to be chatty or not.
+        netcdf: boolean
+            Whether to save the output in netCDF4 format.
         
         """
         self.state_config = state_config
@@ -107,12 +119,23 @@ class State ( object ):
         if output_name is None:
             tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
             tag += platform.node()
-            self.output_name = "eoldas_retval_%s.pkl" % tag
+            self.output_name = "eoldas_retval_%s" % tag
             
         else:
-            self.output_name = output_name
+
+        if netcdf:
+            self.output_name = self.output_name + ".nc"
+        else:
+            self.output_name = output_name + ".pkl"
+            
         print "Saving results to %s" % self.output_name
         
+    def set_metadata ( self, metadata ):
+        """This method allows one to specify time and space locations for the experiment.
+        These will be saved in the solution netcdf file."""
+        self.metadata = metadata
+        
+    def set_magnitudes ( self, units,     
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
         """We can set transformations to the data that will be
