@@ -5,7 +5,6 @@ The eoldas_ng state class
 """
 
 __author__  = "J Gomez-Dans"
-__version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
 import cPickle
@@ -59,7 +58,7 @@ class State ( object ):
        
     def __init__ ( self, state_config, state_grid, default_values, \
             parameter_min, parameter_max, optimisation_options=None, \
-            output_name=None, verbose=False, netcdf=False ):
+            output_name=None, verbose=False ):
         """State constructor. The state defines the problem we will try
         to solve and as such requires quite  a large number of parameters
         
@@ -110,32 +109,47 @@ class State ( object ):
                 self.parameter_max[param] ] )
         self.invtransformation_dict = {}
         self.transformation_dict = {}
+        
+        
+        self._set_optimisation_options ( optimisation_options )
+        self._create_output_file ( output_name )
+        
+        
+        
+    def _set_optimisation_options ( self, optimisation_options ):
         if optimisation_options is None:
             self.optimisation_options = {"factr": 1000, \
                 "m":400, "pgtol":1e-12, "maxcor":200, \
                 "maxiter":1500, "disp":True }
         else:
             self.optimisation_options = optimisation_options
+
+    def _create_output_file ( self, output_name ):
+        
+        self.netcdf = False
         if output_name is None:
             tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
             tag += platform.node()
             self.output_name = "eoldas_retval_%s" % tag
             
-        else:
-
-        if netcdf:
-            self.output_name = self.output_name + ".nc"
-        else:
+        elif isinstance ( output_name, basestring ):
             self.output_name = output_name + ".pkl"
+        else:
+            self.output_name = output_name.fname
+            self.netcdf = True
+            
             
         print "Saving results to %s" % self.output_name
         
     def set_metadata ( self, metadata ):
         """This method allows one to specify time and space locations for the experiment.
         These will be saved in the solution netcdf file."""
-        self.metadata = metadata
-        
-    def set_magnitudes ( self, units,     
+        try:
+            self.metadata = metadata
+        except NameError:
+            raise "No netCDF4 output!"
+    
+    
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
         """We can set transformations to the data that will be
@@ -403,23 +417,68 @@ class State ( object ):
                 print "Number of function evaluations: %d " % r.nfev
                 print "Value of the function @ minimum: %e" % r.fun
                 print "Total optimisation time: %.2f (sec)" % ( time.time() - start_time )
+
+
+        #####retval['post_cov'] = post_cov
+        #####retval['real_ci5pc'] = ci_5
+        #####retval['real_ci95pc'] = ci_95
+        #####retval['real_ci25pc'] = ci_25
+        #####retval['real_ci75pc'] = ci_75
+        #####retval['post_sigma'] = post_sigma
+        #####retval['hessian'] =  the_hessian
                 
-        retval_dict = {}
-        retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
-        ### horrible HACK
-        for k,v in self.state_config.iteritems():
+        if self.netcdf:
+            self.output_name.create_group ( "real_map" )
+            self.output_name.create_group ( "transformed_map" )
+
+            oot = self.default_values.copy()
+            oot.update ( self._unpack_to_dict ( r.x, do_invtransform=True ) )
+            for k, v in oot.iteritems():
+                self.output_name.create_variable ( "real_map", k, v,
+                                self.meta[k].units, self.meta[k].long_name,
+                                self.meta[k].std_name )
+            oot = self.default_values.copy()
+            oot.update ( self._unpack_to_dict ( r.x, do_invtransform=False ) )
+            for k, v in oot.iteritems():
+                self.output_name.create_variable ( "transformed_map", k, v,
+                                self.meta[k].units, self.meta[k].long_name,
+                                self.meta[k].std_name )
+            if do_unc:
+                self.output_name.create_group ( "real_ci5pc" )
+                self.output_name.create_group ( "real_ci25pc" )
+                self.output_name.create_group ( "real_ci75pc" )
+                self.output_name.create_group ( "real_ci95pc" )
+                self.output_name.create_group ( "post_sigma" )
+                unc_dict =  self.do_uncertainty ( r.x )
+                for k, v in unc_dict.iteritems():
+                    if k.find ("post_cov") >= 0 or k.find("hessian") >= 0:
+                        print "Not done with this output yet (%s)" % k
+                    else:
+                        for kk, vv in v.iteritems():
+                            self.output_name.create_variable ( k, kk, vv,
+                                self.meta[kk].units, self.meta[kk].long_name,
+                                self.meta[kk].std_name )
+
+        else:
             
-            if self.invtransformation_dict.has_key ( k ) and v == FIXED:
-                retval_dict['real_map'][k] = self.default_values[k]
-        retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
-            do_invtransform=False )
-        if do_unc:
-            retval_dict.update ( self.do_uncertainty ( r.x ) )
-        if self.verbose:
-            print "Saving results to %s" % self.output_name
-        cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
+            retval_dict = {}
+            retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
+            ### horrible HACK
+            
+            for k,v in self.state_config.iteritems():
+                if self.invtransformation_dict.has_key ( k ) and v == FIXED:
+                    retval_dict['real_map'][k] = self.default_values[k]
+                    
+            retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
+                do_invtransform=False )
+
+            if do_unc:
+                retval_dict.update ( self.do_uncertainty ( r.x ) )
+            if self.verbose:
+                print "Saving results to %s" % self.output_name
+            cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
         
-        return retval_dict
+        return 0
     
     def do_uncertainty ( self, x ):
         """A method to calculate the uncertainty. Takes in a state vector.

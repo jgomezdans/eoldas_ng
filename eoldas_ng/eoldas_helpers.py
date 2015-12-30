@@ -122,21 +122,12 @@ class StandardStatePROSAIL ( State ):
 
         
         self.set_transformations ( transformations, inv_transformations )
-        if output_name is None:
-            tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
-            tag += platform.node()
-            self.output_name = "eoldas_retval_%s.pkl" % tag
-            
-        else:
-            self.output_name = output_name
-        print "Saving results to %s" % self.output_name
-        if optimisation_options is None:
-            self.optimisation_options = {"factr": 1000, \
-                "m":400, "pgtol":1e-12, "maxcor":200, \
-                "maxiter":1500, "disp":True }
-        else:
-            self.optimisation_options = optimisation_options
 
+        
+        self._set_optimisation_options ( optimisation_options )
+        self._create_output_file ( output_name )
+        
+        
 class StandardStateSEMIDISCRETE ( State ):
     """A standard state configuration for the SEMIDISCRETE model"""
     def __init__ ( self, state_config, state_grid, \
