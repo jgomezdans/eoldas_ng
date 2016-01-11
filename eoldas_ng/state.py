@@ -9,7 +9,7 @@ __email__   = "j.gomez-dans@ucl.ac.uk"
 
 import cPickle
 import platform
-from collections import OrderedDict
+import collections
 import time
 
 
@@ -31,6 +31,7 @@ class MetaState ( object ):
     This is required to generate CF compliant netCDF output"""
     def __init__ ( self ):
         self.metadata = {}
+        
     def add_variable ( self, varname, units, long_name, std_name ):
         self.metadata[varname] = Variable_name ( units=units, 
                         long_name=long_name, std_name=std_name )
@@ -136,6 +137,7 @@ class State ( object ):
             self.output_name = output_name + ".pkl"
         else:
             self.output_name = output_name.fname
+            self.retval_file = output_name
             self.netcdf = True
             
             
@@ -271,7 +273,7 @@ class State ( object ):
             VARIABLE) are present in the state.
         
         """
-        the_dict = OrderedDict()
+        the_dict = collections.OrderedDict()
         i = 0
         for param, typo in self.state_config.iteritems():
             
@@ -391,7 +393,7 @@ class State ( object ):
         start_time = time.clock()
         if the_bounds is None:
             the_bounds = self._get_bounds_list()        
-        if (type(x0) == type ( {} ) ) or ( type(x0) == type ( OrderedDict() ) ):
+        if (type(x0) == type ( {} ) ) or ( type(x0) == type ( collections.OrderedDict() ) ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
         elif x0 is None:
@@ -428,36 +430,41 @@ class State ( object ):
         #####retval['hessian'] =  the_hessian
                 
         if self.netcdf:
-            self.output_name.create_group ( "real_map" )
-            self.output_name.create_group ( "transformed_map" )
+            self.retval_file.create_group ( "real_map" )
+            self.retval_file.create_group ( "transformed_map" )
 
             oot = self.default_values.copy()
             oot.update ( self._unpack_to_dict ( r.x, do_invtransform=True ) )
             for k, v in oot.iteritems():
-                self.output_name.create_variable ( "real_map", k, v,
-                                self.meta[k].units, self.meta[k].long_name,
-                                self.meta[k].std_name )
+                self.retval_file.create_variable ( "real_map", k, v,
+                                self.metadata.metadata[k].units, 
+                                self.metadata.metadata[k].long_name,
+                                self.metadata.metadata[k].std_name )
             oot = self.default_values.copy()
             oot.update ( self._unpack_to_dict ( r.x, do_invtransform=False ) )
             for k, v in oot.iteritems():
-                self.output_name.create_variable ( "transformed_map", k, v,
-                                self.meta[k].units, self.meta[k].long_name,
-                                self.meta[k].std_name )
+                self.retval_file.create_variable ( "transformed_map", k, v,
+                                self.metadata.metadata[k].units, 
+                                self.metadata.metadata[k].long_name,
+                                self.metadata.metadata[k].std_name )
             if do_unc:
-                self.output_name.create_group ( "real_ci5pc" )
-                self.output_name.create_group ( "real_ci25pc" )
-                self.output_name.create_group ( "real_ci75pc" )
-                self.output_name.create_group ( "real_ci95pc" )
-                self.output_name.create_group ( "post_sigma" )
+                self.retval_file.create_group ( "real_ci5pc" )
+                self.retval_file.create_group ( "real_ci25pc" )
+                self.retval_file.create_group ( "real_ci75pc" )
+                self.retval_file.create_group ( "real_ci95pc" )
+                self.retval_file.create_group ( "post_sigma" )
                 unc_dict =  self.do_uncertainty ( r.x )
                 for k, v in unc_dict.iteritems():
-                    if k.find ("post_cov") >= 0 or k.find("hessian") >= 0:
+                    if k.find ("post_cov") >= 0 or k.find("hessian") >= 0 \
+                        or k.find ( "post_sigma" ) >= 0:
                         print "Not done with this output yet (%s)" % k
                     else:
+                        print k, type(v)
                         for kk, vv in v.iteritems():
-                            self.output_name.create_variable ( k, kk, vv,
-                                self.meta[kk].units, self.meta[kk].long_name,
-                                self.meta[kk].std_name )
+                            self.retval_file.create_variable ( k, kk, vv,
+                                self.metadata.metadata[kk].units, 
+                                self.metadata.metadata[kk].long_name,
+                                self.metadata.metadata[kk].std_name )
 
         else:
             
