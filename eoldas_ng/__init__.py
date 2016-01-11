@@ -1,4 +1,4 @@
-from state import State
+from state import State, MetaState
 
 from operators import Prior, TemporalSmoother, SpatialSmoother
 from operators import ObservationOperator, ObservationOperatorTimeSeriesGP

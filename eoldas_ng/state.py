@@ -368,7 +368,7 @@ class State ( object ):
                     for j in xrange ( self.n_elems )]
         return the_bounds
     
-    def optimize ( self, x0=None, the_bounds=None, do_unc=False ):
+    def optimize ( self, x0=None, the_bounds=None, do_unc=False, ret_sol=True ):
         """Optimise the state starting from a first guess `x0`. Can also allow the 
         specification of parameter boundaries, and whether to calculate the 
         uncertainty or not. ``x0`` can have several different forms: it can be
@@ -459,14 +459,13 @@ class State ( object ):
                         or k.find ( "post_sigma" ) >= 0:
                         print "Not done with this output yet (%s)" % k
                     else:
-                        print k, type(v)
                         for kk, vv in v.iteritems():
                             self.retval_file.create_variable ( k, kk, vv,
                                 self.metadata.metadata[kk].units, 
                                 self.metadata.metadata[kk].long_name,
                                 self.metadata.metadata[kk].std_name )
 
-        else:
+        if ret_sol or (not self.netcdf):
             
             retval_dict = {}
             retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
@@ -484,8 +483,10 @@ class State ( object ):
             if self.verbose:
                 print "Saving results to %s" % self.output_name
             cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
-        
-        return 0
+        if ret_sol:
+            return retval_dict
+        else:
+            return 0
     
     def do_uncertainty ( self, x ):
         """A method to calculate the uncertainty. Takes in a state vector.
