@@ -480,9 +480,10 @@ class State ( object ):
 
             if do_unc:
                 retval_dict.update ( self.do_uncertainty ( r.x ) )
-            if self.verbose:
-                print "Saving results to %s" % self.output_name
-            cPickle.dump ( retval_dict, open( self.output_name, 'wb' ) )
+            if not self.netcdf: # Dump pickle
+                if self.verbose:
+                    print "Saving results to %s" % self.output_name
+                cPickle.dump ( retval_dict, open( self.output_name + ".pkl", 'wb' ) )
         if ret_sol:
             return retval_dict
         else:
