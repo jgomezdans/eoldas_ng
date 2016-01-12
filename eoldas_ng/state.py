@@ -464,7 +464,7 @@ class State ( object ):
                                 self.metadata.metadata[kk].units, 
                                 self.metadata.metadata[kk].long_name,
                                 self.metadata.metadata[kk].std_name )
-
+		self.retval_file = None
         if ret_sol or (not self.netcdf):
             
             retval_dict = {}
