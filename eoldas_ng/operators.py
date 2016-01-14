@@ -252,7 +252,7 @@ class Prior ( object ):
                 block_mtx.append ( this_block )
 
                 jj += 1
-                #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
+                  #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
                 i += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
@@ -568,7 +568,7 @@ class ObservationOperator ( object ):
         sigma_obs: array
             The standard deviation of the observations array.
         mask: array
-            A mask array
+            A boolean mask array
         required_params: list
             Really, this is just a label for the magnitude of the observations.
         factor: int 
@@ -1295,7 +1295,13 @@ class ObservationOperatorImageGP ( object ):
                 # pull the block that we want for this combination
                 # of parameters (p0,p1) for all samples (Nblocks)
                 # BUT, this is diagonal, so pull only the diagonal
-                this_block = all_blocks[p0::Nvp,p1::Nvp].diagonal()
+                try:
+                    this_block = all_blocks[p0::Nvp,p1::Nvp].diagonal()
+                except TypeError:
+                    if Nvp<2: # Only one parameter is variable, nothing to change.
+                        this_block = all_blocks.diagonal()
+                    else:
+                        raise
 
                 # make a sparse diagonal matrix from this
                 sp_this_block = scipy.sparse.spdiags(this_block,[0],Nblocks,Nblocks)
