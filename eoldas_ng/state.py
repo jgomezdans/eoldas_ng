@@ -119,8 +119,7 @@ class State ( object ):
         
     def _set_optimisation_options ( self, optimisation_options ):
         if optimisation_options is None:
-            self.optimisation_options = {"factr": 1000, \
-                "m":400, "pgtol":1e-12, "maxcor":200, \
+            self.optimisation_options = { "maxcor":200, \
                 "maxiter":1500, "disp":True }
         else:
             self.optimisation_options = optimisation_options
