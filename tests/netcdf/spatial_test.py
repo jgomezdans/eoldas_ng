@@ -5,6 +5,7 @@ from eoldas_ng_observations import OutputFile
 
 from eoldas_ng import *
 from collections import OrderedDict
+import netCDF4
 
 
 def gauss_kern(size, sizey=None):
