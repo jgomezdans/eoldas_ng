@@ -145,6 +145,7 @@ the_smoother.gamma = 0.04616#opt_gamma
 retval = the_state.optimize ( x_dict, do_unc=True )
 
 f = netCDF4.Dataset ( "spatial_example.nc")
-for k in [ "real_map", "real_ci95pc", "real_ci75pc", "real_ci25pc", "real_ci5pc"]:
+for k in [ "real_map", "real_ci95pc", "real_ci75pc", 
+	"real_ci25pc", "real_ci5pc"]:
     in_file_data = f.groups[k].variables['magnitude'][:,:]
     print k, np.allclose ( retval[k]['magnitude'], in_file_data )
