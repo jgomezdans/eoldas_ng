@@ -84,5 +84,5 @@ retval = the_state.optimize( np.random.rand(y_smooth.size), do_unc=True )
 
 f = netCDF4.Dataset ( "timeseries_eoldas_test.nc")
 for k in [ "real_map", "real_ci95pc", "real_ci75pc", "real_ci25pc", "real_ci5pc"]:
-    print k, np.allclose ( retval[k]['magnitude'], 
-        f["/%s/magnitude" % k][:] )
+    in_file_data = f.groups[k].variables['magnitude'][:,:]
+    print k, np.allclose ( retval[k]['magnitude'], in_file_data )
