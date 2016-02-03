@@ -234,7 +234,7 @@ class Prior ( object ):
 
         n, n_elems = get_problem_size ( x_dict, state_config )
         block_mtx = []   
-        i = 0
+        ii = 0
         jj = 0
         for param, typo in state_config.iteritems():
             
@@ -245,7 +245,7 @@ class Prior ( object ):
                 this_block[jj] = sp.lil_matrix ( self.inv_cov[param] )
                 block_mtx.append ( this_block )
                 jj += 1
-                i += 1
+                ii += 1
             elif typo == VARIABLE:
                 this_block = [ None for i in xrange( n_blocks) ]
                 this_block[jj] = self.inv_cov[param]
@@ -253,7 +253,7 @@ class Prior ( object ):
 
                 jj += 1
                   #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
-                i += n_elems
+                ii += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
         return sp.bmat ( block_mtx, format="lil", dtype=np.float32 )
@@ -264,13 +264,19 @@ class Prior ( object ):
 
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
-    def __init__ ( self, state_grid, gamma, order=1, required_params = None  ):
+    def __init__ ( self, state_grid, gamma, lag=1, order=1, required_params = None  ):
         """A simple temporal smoother or Tikhonov constraint. The class
         requires the state grid, a value (or values) of the regularisation
         constant, ``gamma``, the order (by default is one, but could be other),
         and a potential indication to what parameters should the regularisation
         be applied to. Note that these parameters need to be set to VARIABLE, 
-        otherwise regularisation doesn't make any sense.
+        otherwise regularisation doesn't make any sense. The default ``lag`` 
+        value is 1, meaning that the regularisation constraint is taking between
+        adjacents time steps in the state grid. You can change that to any value
+        you want. The idea is that you can extend your fast time scale lag (e.g.
+        daily) with an additional lag constraint (e.g. annual).
+        
+        TODO Still using Numpy's matrices, which is somehow poor coding choice
         
         Parameters
         ------------
@@ -280,6 +286,10 @@ class TemporalSmoother ( object ):
             The regularisation constant (or constants). If ``gamma`` is a vector,
             the positions in the vector relate to the positions in 
             ``required_params``.
+        lag: int
+            The lag to which the regularisation is applied to. By default, is 
+            "next" neighbour, but in some cases, you might want to add different
+            lags.
         order: int
             The order of the regularisation TODO This is still a bit vague!
         required_params: None or array
@@ -288,8 +298,8 @@ class TemporalSmoother ( object ):
         self.order = order
         self.n_elems = state_grid.shape[0]
         I = np.identity( state_grid.shape[0] )
-        self.D1 = np.matrix(I - np.roll(I,1))
-        self.D1 = self.D1 * self.D1.T
+        D1 = np.matrix(I - np.roll( I, lag ))
+        self.D1 = np.matrix ( D1.T.dot ( D1 ) )
         
         self.required_params = required_params
         if required_params is not None:
