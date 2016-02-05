@@ -297,10 +297,14 @@ class TemporalSmoother ( object ):
         """
         self.order = order
         self.n_elems = state_grid.shape[0]
-        I = np.identity( state_grid.shape[0] )
-        D1 = np.matrix(I - np.roll( I, lag ))
-        self.D1 = np.matrix ( D1.T.dot ( D1 ) )
-        
+        # Create the regularisation matrix
+        diag = np.ones(( 2, self.n_elems), dtype=np.float32 )
+        diag[0,0] = 0.
+        diag[1,:] = -1.
+        D = sp.dia_matrix ( (diag, [0, lag]), 
+                            shape=(self.n_elems, self.n_elems) )
+        self.D1 = D.dot(D.T)
+
         self.required_params = required_params
         if required_params is not None:
             n_reg_params = len ( required_params )
@@ -347,12 +351,14 @@ class TemporalSmoother ( object ):
                 i += 1                
             elif typo == VARIABLE:
                 if param in self.required_params :
-                    xa = np.matrix ( x_dict[param] )
-                    cost = cost + \
-                        0.5*self.gamma[self.required_params.index ( param ) ]*(np.sum(np.array(self.D1.dot(xa.T))**2))
-                    der_cost[i:(i+self.n_elems)] = np.array( \
-                        self.gamma[self.required_params.index ( param ) ]*np.dot((self.D1).T, \
-                        self.D1*np.matrix(xa).T)).squeeze()
+                    this_gamma = self.gamma[self.required_params.index ( param ) ]
+                    xa = x_dict[param]
+                    cost +=  0.5*this_gamma*\
+                            self.D1.dot(xa).dot(xa)
+                    der_cost[i:(i+self.n_elems)] = this_gamma*self.D1.dot(xa)#self.D1.dot ( self.D1.T.dot(np.array(xa).squeeze()))
+                    #der_cost[i:(i+self.n_elems)] = np.array( \
+                    #    self.gamma[self.required_params.index ( param ) ]*np.dot((self.D1).T, \
+                    #    self.D1*np.matrix(xa).T)).squeeze()
                     isel_param += 1
                 i += self.n_elems
                 
@@ -406,8 +412,9 @@ class TemporalSmoother ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-                    hessian = sp.lil_matrix ( self.gamma[isel_param]*np.dot ( \
-                         self.D1,np.eye( self.n_elems )).dot( self.D1.T ) )
+                    hessian = sp.lil_matrix ( self.gamma[isel_param]*self.D1 )
+                    #hessian = sp.lil_matrix ( self.gamma[isel_param]*np.dot ( \
+                         #self.D1,np.eye( self.n_elems )).dot( self.D1.T ) )
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
