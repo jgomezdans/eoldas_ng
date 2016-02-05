@@ -704,7 +704,6 @@ class ObservationOperatorTimeSeriesGP ( object ):
         
         the_derivatives = np.zeros ( ( len( x_dict.keys()), \
                 self.nt ) )
-        
         for param, typo in state_config.iteritems():
         
             if typo == FIXED or  typo == CONSTANT:
