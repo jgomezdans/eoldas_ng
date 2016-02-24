@@ -234,7 +234,7 @@ class Prior ( object ):
 
         n, n_elems = get_problem_size ( x_dict, state_config )
         block_mtx = []   
-        i = 0
+        ii = 0
         jj = 0
         for param, typo in state_config.iteritems():
             
@@ -245,7 +245,7 @@ class Prior ( object ):
                 this_block[jj] = sp.lil_matrix ( self.inv_cov[param] )
                 block_mtx.append ( this_block )
                 jj += 1
-                i += 1
+                ii += 1
             elif typo == VARIABLE:
                 this_block = [ None for i in xrange( n_blocks) ]
                 this_block[jj] = self.inv_cov[param]
@@ -253,7 +253,7 @@ class Prior ( object ):
 
                 jj += 1
                   #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
-                i += n_elems
+                ii += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
         return sp.bmat ( block_mtx, format="lil", dtype=np.float32 )
