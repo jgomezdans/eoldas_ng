@@ -396,8 +396,7 @@ class TemporalSmoother ( object ):
                 
             elif typo == VARIABLE:
                 if param in self.required_params:
-                    hessian = sp.lil_matrix ( self.gamma[isel_param]*np.dot ( \
-                         self.D1,np.eye( self.n_elems )).dot( self.D1.T ) )
+		    hessian = self.gamma[isel_param]* sp.lil_matrix ( self.D1 )
                     h[i:(i+n_elems), i:(i+n_elems) ] = hessian
                     isel_param += 1
                     i += n_elems
