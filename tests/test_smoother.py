@@ -66,7 +66,7 @@ class TestTemporalSmoother ( object ):
         x_dict = OrderedDict ({'magnitude':x})
         cost = x.dot ( D*D.T).dot(x)
         cost = 0.5*gamma*cost
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         assert_equal ( np.squeeze(a.der_cost( x_dict, state_config)[0]), cost )
 
     def test_costa(self):
