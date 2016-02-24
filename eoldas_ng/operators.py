@@ -234,7 +234,7 @@ class Prior ( object ):
 
         n, n_elems = get_problem_size ( x_dict, state_config )
         block_mtx = []   
-        i = 0
+        ii = 0
         jj = 0
         for param, typo in state_config.iteritems():
             
@@ -245,7 +245,7 @@ class Prior ( object ):
                 this_block[jj] = sp.lil_matrix ( self.inv_cov[param] )
                 block_mtx.append ( this_block )
                 jj += 1
-                i += 1
+                ii += 1
             elif typo == VARIABLE:
                 this_block = [ None for i in xrange( n_blocks) ]
                 this_block[jj] = self.inv_cov[param]
@@ -253,7 +253,7 @@ class Prior ( object ):
 
                 jj += 1
                   #h1[i:(i+n_elems), i:(i+n_elems)] = self.inv_cov[param].tolil() 
-                i += n_elems
+                ii += n_elems
         # Typically, the matrix wil be sparse. In fact, in many situations,
         # it'll be purely diagonal, but in general, LIL is a good format
         return sp.bmat ( block_mtx, format="lil", dtype=np.float32 )
@@ -652,6 +652,7 @@ class ObservationOperatorTimeSeriesGP ( object ):
          (mask, vza, sza, raa) array.
          
          
+         
         """
         self.state = state
         self.observations = observations
@@ -667,6 +668,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self.bu = bu
         self.band_pass = band_pass
         self.bw = bw
+        # These numbers are the intervals of the angles in the emulator library
+        # By default, for sza and vza, we have 5 degrees, and 15 degrees for
+        # raa.
+        self._sza_interval = 5
+        self._vza_interval = 5
+        self._ra1_interval = 15
 
         
     
@@ -740,11 +747,11 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # And add the cost/der_cost contribution from each.
             
             for this_obs_loc in sel_obs.nonzero()[0]:
-                this_obsop, this_obs, this_extra = self.time_step ( \
+                this_obsop, this_obs, this_bu, this_extra = self.time_step ( 
                     this_obs_loc )
                 this_cost, this_der, fwd_model, this_gradient = \
                     self.calc_mismatch ( this_obsop, x_params[:, itime], \
-                    this_obs, self.bu, *this_extra )
+                    this_obs, this_bu, *this_extra )
                 self.fwd_modelled_obs.append ( fwd_model ) # Store fwd model
                 cost += this_cost
                 the_derivatives[ :, itime] += this_der
@@ -766,10 +773,22 @@ class ObservationOperatorTimeSeriesGP ( object ):
     def time_step ( self, this_loc ):
         """Returns relevant information on the observations for a particular time step.
         """
-        tag = np.round( self.mask[ this_loc, 1:].astype (np.int)/5.)*5
-        tag = tuple ( (tag[:2].astype(np.int)).tolist() )
+        
+        tag_sza = self.mask[this_loc,2].astype(np.int)/\
+                (1.*self._sza_interval)*self._sza_interval
+        tag_vza = self.mask[this_loc,1].astype(np.int)/\
+                (1.*self._vza_interval)*self._vza_interval
+        tag_raa = self.mask[this_loc,3].astype(np.int)/\
+                (1.*self._raa_interval)*self._raa_interval
+        tag = ( tag_sza, tag_vza, tag_raa )
         this_obs = self.observations[ this_loc, :]
-        return self.emulators[tag], this_obs, [ self.band_pass, self.bw ]
+        # The next bit selects the uncertainties
+        if self.bu.ndim == 1:
+            this_bu = self.bu
+        elif self.bu.ndim == 2:
+            this_bu = self.bu[:, this_loc]
+            
+        return self.emulators[tag], this_obs, this_bu, [ self.band_pass, self.bw ]
     
     def calc_mismatch ( self, gp, x, obs, bu, band_pass, bw ):
         this_cost, this_der, fwd, gradient = fwd_model ( gp, x, obs, bu, \
@@ -858,11 +877,11 @@ class ObservationOperatorTimeSeriesGP ( object ):
             # And add the cost/der_cost contribution from each.
             for this_obs_loc in sel_obs.nonzero()[0]:
                 
-                this_obsop, this_obs, this_extra = self.time_step ( \
+                this_obsop, this_obs, this_bu, this_extra = self.time_step ( \
                     this_obs_loc )
                 xs = x_params[:, itime]*1
                 dummy, df_0, dummy_fwd, dummy_gradient = self.calc_mismatch ( this_obsop, \
-                    xs, this_obs, self.bu, *this_extra )
+                    xs, this_obs, this_bu, *this_extra )
                 iloc = 0
                 iiloc = 0
                 for i,fin_diff in enumerate(param_pattern):
