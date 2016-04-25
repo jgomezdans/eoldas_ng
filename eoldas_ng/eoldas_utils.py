@@ -170,7 +170,7 @@ def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
     
     return cost, np.array( der_cost ).squeeze().sum(axis=0), fwd_model_obs, gradient
 
-def downsample(myarr,factorx,factory):
+def downsample(myarr,factorx,factory, aggr="mean"):
     """
     Downsample a 2D array by averaging over *factor* pixels in each axis.
     Crops upper edge if the shape is not a multiple of factor.
@@ -180,9 +180,16 @@ def downsample(myarr,factorx,factory):
     """
     xs,ys = myarr.shape
     crarr = myarr[:xs-(xs % int(factorx)),:ys-(ys % int(factory))]
-    dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
-        for i in range(factorx)] 
-        for j in range(factory)]).mean(axis=0)
+    if aggr == "mean":
+        dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
+            for i in range(factorx)] 
+            for j in range(factory)]).mean(axis=0)
+    elif aggr == "sum":
+        dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
+            for i in range(factorx)] 
+            for j in range(factory)]).sum(axis=0)
+    else:
+        raise NotImplementedError
     return dsarr
 
 def fit_smoothness (  x, sigma_model  ):
