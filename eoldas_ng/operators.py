@@ -18,6 +18,8 @@ import scipy.optimize
 import scipy.sparse as sp
 from scipy.ndimage.interpolation import zoom
 
+import matplotlib.pyplot as plt
+
 from eoldas_utils import *
 
 FIXED = 1
@@ -926,6 +928,10 @@ class ObservationOperatorImageGP ( object ):
          
         """
         self.state = state
+        if state.state_grid.dtype is np.dtype('bool'):
+            self.state_grid = state.state_grid
+        else: 
+            self.state_grid = np.ones_like ( state.state_grid, dtype=np.bool )
         self.observations = observations
         try:
             self.n_bands, self.nx, self.ny = self.observations.shape
@@ -951,7 +957,15 @@ class ObservationOperatorImageGP ( object ):
         self.bw = bw
         self.factor = factor
         self.fwd_modelled_obs = np.zeros_like ( self.observations )
-
+        self.iteration = 0
+        
+    def _plot ( self ):
+        plt.figure()
+        plt.imshow ( self.fwd_modelled_obs[2], interpolation='nearest', vmin=0,
+                    vmax=0.4 )
+        plt.savefig("nir_iter_%04d.png"%self.iteration, dpi=72 )
+        self.iteration = self.iteration + 1
+        plt.close()
     def first_guess ( self, state_config, do_unc=False ):
         """
         A method to provide a first guess of the state. The idea here is to take the GPs, 
@@ -965,19 +979,23 @@ class ObservationOperatorImageGP ( object ):
         if do_unc:
             s0 = dict()
         x0 = dict()        
+        if self.factor == 1 or self.factor is None:
+            mask = self.mask * self.state_grid
+        else:
+            print "The state mask needs to be resampled..."
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
             if do_unc:
                 s0[param] = np.zeros_like( self.observations[0,:, :].flatten())
-            xsol = gp.predict( self.observations[:, self.mask].T, do_unc=False )
-            x0[param][self.mask.flatten()] = xsol[0]
+            xsol = gp.predict( self.observations[:, mask].T, do_unc=False )
+            x0[param][mask.flatten()] = xsol[0]
             if do_unc:
                 # for the pixels where we have observations, we can use the GP
                 # uncertainty directly. For the one where we don't, we can use
                 # the maximum uncertainty. Maybe this is even too confident!
-                s0[param][self.mask.faltten()] = xsol[1]
-                s0[param][~self.mask.flatten()] = s0[param][self.mask.flatten()].max()
-            x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
+                s0[param][mask.flatten()] = xsol[1]
+                s0[param][~mask.flatten()] = s0[param][mask.flatten()].max()
+            x0[param][~mask.flatten()] = x0[param][mask.flatten()].mean()
         if do_unc:
             return x0, s0
         else:
@@ -1089,6 +1107,7 @@ class ObservationOperatorImageGP ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
+        
         i = 0
         cost = 0.
         n = 0
@@ -1101,7 +1120,7 @@ class ObservationOperatorImageGP ( object ):
                 n += n_elems
         der_cost = np.zeros ( n )
         # `x_params` should relate to the grid state size, not observations size
-        x_params = np.empty ( ( len( x_dict.keys()), \
+        x_params = np.zeros ( ( len( x_dict.keys()), \
             self.nx_state * self.ny_state ) )
         j = 0
         ii = 0
@@ -1133,19 +1152,33 @@ class ObservationOperatorImageGP ( object ):
         # do a reshape
         if self.factor is not None:
             # Interpolate the mask is needed for the derivatives
-            zmask = zoom ( self.mask, self.factor, order=0, mode="nearest" \
-                ).astype ( np.bool )
+            zmask = zoom ( self.mask, self.factor, order=0, 
+                          mode="nearest" ).astype ( np.bool )
         else:
             zmask = self.mask
         self.obs_op_grad = []
-       
+        # Apply the state grid to the mask in state resolution
+        zmask = zmask * self.state_grid
+        # Combined mask in observation space: combines observation missing data
+        # and state_grid...
+        if self.factor is not None:
+            state_grid_mask_obs = downsample(state_grid*1., self.factor[0],
+                                             self.factor[1] )
+            # Choose the "purest" pixels, more than 90% cover
+            # This should be an option
+            state_grid_mask_obs = np.where ( state_grid_mask_obs > 0.9, True,
+                                            False )
+        else:
+            state_grid_mask_obs = self.state_grid* np.ones_like ( 
+                self.mask, dtype=np.bool )
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model,  partial_derv = \
-                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
+                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, 
+                                              do_unc=False)
             # The next couple of lines ensure that the gradient is stored in a full
             # vector shape
             temp_me = np.zeros_like ( x_params )
@@ -1160,8 +1193,11 @@ class ObservationOperatorImageGP ( object ):
                     self.state_grid.shape), self.factor[0], \
                     self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
-            err = ( fwd_model - self.observations[band, self.mask] )
-            self.fwd_modelled_obs[band, self.mask] = fwd_model
+            
+            err = ( fwd_model - self.observations[band, 
+                                            self.mask*state_grid_mask_obs] )
+            self.fwd_modelled_obs[band, self.mask*state_grid_mask_obs] = \
+                                    fwd_model
             cost += np.sum(0.5 * err**2/self.bu[band]**2 )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
@@ -1203,6 +1239,7 @@ class ObservationOperatorImageGP ( object ):
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
         self.obs_op_grad = np.array ( self.obs_op_grad )
+        self._plot()
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
