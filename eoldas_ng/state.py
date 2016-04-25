@@ -402,7 +402,10 @@ class State ( object ):
             raise NotImplementedError
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
-            x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
+            x0 = self.operators[x0].first_guess( self.state_config,    
+                                                self.state_grid.size )
+            if len ( x0 ) > 1:
+                x0 = self.pack_from_dict ( x0[0], do_transform=True )
             
         r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options=self.optimisation_options)
