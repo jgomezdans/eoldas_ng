@@ -338,7 +338,6 @@ class TemporalSmoother ( object ):
         cost = 0
         n = 0
         self.required_params = self.required_params or state_config.keys()
-        
         n, n_elems = get_problem_size ( x_dict, state_config )        
         der_cost = np.zeros ( n )
         isel_param = 0
@@ -421,7 +420,8 @@ class TemporalSmoother ( object ):
 class SpatialSmoother ( object ):
     """MRF prior"""
     def __init__ ( self, state_grid, gamma, required_params = None  ):
-        self.nx = state_grid.shape
+        self.state_grid = state_grid
+        self.nx = self.state_grid.shape
         self.gamma = gamma
         self.required_params = required_params
         
@@ -450,8 +450,9 @@ class SpatialSmoother ( object ):
         n = 0
         self.required_params = self.required_params or state_config.keys()
         
-        n, n_elems = get_problem_size ( x_dict, state_config )
         
+        n, n_elems = get_problem_size ( x_dict, state_config, 
+                                       state_grid=self.state_grid )
         der_cost = np.zeros ( n )
 
         for param, typo in state_config.iteritems():
@@ -471,12 +472,19 @@ class SpatialSmoother ( object ):
                     try:
                         sigma_model = self.gamma[ \
                             self.required_params.index(param) ]
-                    except:
+                    except TypeError:
                         sigma_model = self.gamma
-                   
+                        
                     xa = x_dict[param].reshape( self.nx )
+                    xa[~self.state_grid] = np.nan
                     cost, dcost = fit_smoothness ( xa, sigma_model )
-                    der_cost[i:(i+n_elems)] = dcost.flatten()
+                    # Here we probably need to subset/rejiggle stuff...
+                    if self.state_grid.dtype == np.dtype ( np.bool ):
+                        tempo = dcost[self.state_grid]
+                        tempo[np.isnan(tempo)] = 0.
+                        der_cost[i:(i+n_elems)] = tempo
+                    else:
+                        der_cost[i:(i+n_elems)] = dcost.flatten()
                 i += n_elems
                 
                 
@@ -966,6 +974,8 @@ class ObservationOperatorImageGP ( object ):
         plt.savefig("nir_iter_%04d.png"%self.iteration, dpi=72 )
         self.iteration = self.iteration + 1
         plt.close()
+        
+        
     def first_guess ( self, state_config, do_unc=False ):
         """
         A method to provide a first guess of the state. The idea here is to take the GPs, 
@@ -996,6 +1006,7 @@ class ObservationOperatorImageGP ( object ):
                 s0[param][mask.flatten()] = xsol[1]
                 s0[param][~mask.flatten()] = s0[param][mask.flatten()].max()
             x0[param][~mask.flatten()] = x0[param][mask.flatten()].mean()
+            x0[param] = x0[param].reshape ( self.observations[0,:,:].shape )
         if do_unc:
             return x0, s0
         else:
@@ -1116,9 +1127,10 @@ class ObservationOperatorImageGP ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = x_dict[param].size
+                n_elems = self.state_grid.sum()#x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
+
         # `x_params` should relate to the grid state size, not observations size
         x_params = np.zeros ( ( len( x_dict.keys()), \
             self.nx_state * self.ny_state ) )
@@ -1137,13 +1149,15 @@ class ObservationOperatorImageGP ( object ):
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
-                x_params[ j, : ] = x_dict[param]
+                x_params[ j, : ] = np.where ( np.isfinite(x_dict[param]), 
+                                             x_dict[param], 0. )
                 
             elif typo == VARIABLE:
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
-                x_params[ j, : ] = x_dict[param].flatten()
+                x_params[ j, : ] = np.where ( np.isfinite(x_dict[param]), 
+                                             x_dict[param], 0. ).flatten()
 
             j += 1
         
@@ -1229,13 +1243,16 @@ class ObservationOperatorImageGP ( object ):
         self.diag_hess_vect = np.zeros_like ( der_cost )
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, :].sum()
-                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
+                der_cost[j] = the_derivatives[i, 
+                                              self.state_grid.flatten()].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, 
+                                              self.state_grid.flatten()].sum()
                 j += 1
             elif typo == VARIABLE:
-                n_elems = x_dict[param].size
-                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
-                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, 
+                                                    self.state_grid.flatten()]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, 
+                                                self.state_grid.flatten()]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
         self.obs_op_grad = np.array ( self.obs_op_grad )
