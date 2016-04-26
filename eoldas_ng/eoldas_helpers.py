@@ -48,6 +48,16 @@ class StandardStatePROSAIL ( State ):
         self.state_config = state_config
         self.state_grid = state_grid
         self.n_elems =  self.state_grid.size
+        # We now test whether the state mask is operational. We need to
+        # check the type of the array in order not to break compatibility
+        # In the future, this is just wasteful!
+        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and 
+                    ( self.n_elems != self.state_grid.sum())):
+            self.n_elems_masked = self.state_grid.sum()
+        else:
+            self.n_elems_masked = self.n_elems
+        # self.n_elems_masked is the number of "valid" grid cells
+
         # Now define the default values
         self.default_values = OrderedDict ()
         self.default_values['n'] = 1.6
@@ -136,6 +146,16 @@ class StandardStateSEMIDISCRETE ( State ):
         self.state_config = state_config
         self.state_grid = state_grid
         self.n_elems =  self.state_grid.size
+        # We now test whether the state mask is operational. We need to
+        # check the type of the array in order not to break compatibility
+        # In the future, this is just wasteful!
+        
+        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and 
+                    ( self.n_elems != self.state_grid.sum())):
+            self.n_elems_masked = self.state_grid.sum()
+        else:
+            self.n_elems_masked = self.n_elems
+        # self.n_elems_masked is the number of "valid" grid cells
         
         self.default_values = default_values
         self.operators = {}
