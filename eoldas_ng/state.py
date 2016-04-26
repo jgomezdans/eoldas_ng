@@ -98,6 +98,16 @@ class State ( object ):
         self.state_config = state_config
         self.state_grid = state_grid
         self.n_elems =  self.state_grid.size
+        # We now test whether the state mask is operational. We need to
+        # check the type of the array in order not to break compatibility
+        # In the future, this is just wasteful!
+        
+        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and 
+                    ( self.n_elems != self.state_grid.sum())):
+            self.n_elems_masked = self.state_grid.sum()
+        else:
+            self.n_elems_masked = self.n_elems
+        # self.n_elems_masked is the number of "valid" grid cells
         self.default_values = default_values
         self.operators = {}
         self.n_params = self._state_vector_size ()
@@ -193,13 +203,14 @@ class State ( object ):
                 
     def _state_vector_size ( self ):
         """Returns the size of the state vector going over the 
-        state grid and state config dictionary."""
+        state grid and state config dictionary.
+        TODO: doesn't take into account state mask!"""
         n_params = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT:
                 n_params  += 1
             elif typo == VARIABLE:
-                n_params  += self.n_elems
+                n_params  += self.n_elems_masked
         return n_params
         
     def pack_from_dict ( self, x_dict, do_transform=False ):
@@ -237,13 +248,23 @@ class State ( object ):
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
                 if do_transform and self.transformation_dict.has_key ( param ):
-                    the_vector[i:(i + self.n_elems)] =  \
-                        self.transformation_dict[param] ( \
-                            x_dict[param].flatten() )
+                    try:
+                        the_vector[i:(i + self.n_elems_masked)] =  (
+                            self.transformation_dict[param] ( 
+                                x_dict[param].flatten() ) )
+                    except ValueError: # We need to take the state mask into
+                                       # account ;(
+                        the_vector[i:(i + self.n_elems_masked)] =  (
+                            self.transformation_dict[param] ( 
+                                x_dict[param][self.state_grid] ) )
                 else:
-                    the_vector[i:(i + self.n_elems)] =  \
-                        x_dict[param].flatten() 
-                i += self.n_elems
+                    try:
+                        the_vector[i:(i + self.n_elems_masked)] =  \
+                            x_dict[param].flatten() 
+                    except ValueError:
+                        the_vector[i:(i + self.n_elems_masked)] =  \
+                            x_dict[param][self.state_grid]
+                i += self.n_elems_masked
         return the_vector 
     
     def _unpack_to_dict ( self, x, do_transform=False, do_invtransform=False ):
@@ -307,27 +328,50 @@ class State ( object ):
                 i += 1
                 
             elif typo == VARIABLE:
-                if do_transform and self.transformation_dict.has_key ( \
-                        param ):
-                    the_dict[param] = self.transformation_dict[param] ( \
-                        x[i:(i+self.n_elems )]).reshape( \
-                        self.state_grid.shape )
+                # Issue here is that we have the state mask to worry about
+                if do_transform and self.transformation_dict.has_key (                                  
+                            param ):
+                     xx = self.transformation_dict[param] ( 
+                        x[i:(i+self.n_elems_masked )] )
+                     if self.n_elems == self.n_elems_masked:
+                         # No state mask
+                        the_dict[param] = xx.reshape ( self.state_grid.shape )
+                     else:
+                        # State mask is present, so have a temporary array
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = xx
+                        the_dict[param] = xxx
+                        
                 elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
                     p1 = self.transformation_dict[param] ( self.parameter_max[param] )
                     p2 = self.transformation_dict[param] ( self.parameter_min[param] )
                     pmax = max ( p1, p2 )
                     pmin = min ( p1, p2 )
-                    xx = np.clip ( x[i:(i+self.n_elems )].reshape( \
-                        self.state_grid.shape), p1, p2 )
+                    xx = np.clip ( x[i:(i+self.n_elems_masked )], p1, p2 )
                     
+                    if self.n_elems == self.n_elems_masked:
+                         # No state mask
+                        xxx = xx.reshape ( self.state_grid.shape )
+                    else:
+                        # State mask is present, so have a temporary array
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = xx
+                        #the_dict[param] = xxx
 
-                    the_dict[param] = self.invtransformation_dict[param] ( xx )
+                    
+                    
+                    the_dict[param] = self.invtransformation_dict[param] ( xxx )
 
                 else:
-                    the_dict[param] = x[i:(i+self.n_elems )].reshape( \
-                        self.state_grid.shape )
-                i += self.n_elems
+                    if self.n_elems == self.n_elems_masked:
+                        the_dict[param] = x[i:(i+self.n_elems_masked )].reshape( 
+                            self.state_grid.shape )
+                    else:
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = x[i:(i+self.n_elems_masked )]
+                        the_dict[param] = xxx
+                i += self.n_elems_masked
             
         return the_dict
     
@@ -364,7 +408,7 @@ class State ( object ):
             elif typo == VARIABLE:
                 
                 [ the_bounds.append ( self.bounds[i] ) \
-                    for j in xrange ( self.n_elems )]
+                    for j in xrange ( self.n_elems_masked    )]
         return the_bounds
     
     def optimize ( self, x0=None, the_bounds=None, do_unc=False, ret_sol=True ):
@@ -406,7 +450,7 @@ class State ( object ):
                                                 self.state_grid.size )
             if len ( x0 ) > 1:
                 x0 = self.pack_from_dict ( x0[0], do_transform=True )
-            
+
         r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options=self.optimisation_options)
         end_time = time.time()
@@ -603,7 +647,6 @@ class State ( object ):
              if self.verbose:
                  print "\t%s %8.3e" % ( op_name, cost )
          self.the_cost = aggr_cost
-
 
          
          if self.verbose:
