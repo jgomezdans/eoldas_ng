@@ -419,11 +419,12 @@ class TemporalSmoother ( object ):
 
 class SpatialSmoother ( object ):
     """MRF prior"""
-    def __init__ ( self, state_grid, gamma, required_params = None  ):
+    def __init__ ( self, state_grid, gamma, required_params = None, lag=1  ):
         self.state_grid = state_grid
         self.nx = self.state_grid.shape
         self.gamma = gamma
         self.required_params = required_params
+        self.lag = lag
         
     def der_cost ( self, x_dict, state_config):
         """Calculate the cost function and its partial derivs for a spatial 
@@ -498,13 +499,18 @@ class SpatialSmoother ( object ):
         block_mtx = []
         n = 0
         n_blocks = 0 # Blocks in sparse Hessian matrix
+        
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
                 n += 1
                 n_blocks += 1
             elif typo == VARIABLE:
                 try:
-                    n_elems = x[param].size
+                    if (( self.state_grid.dtype == np.dtype ( np.bool )) and
+                        ( x_dict[param].size != self.state_grid.sum() ) ):
+                        n_elems = self.state_grid.sum()
+                    else:
+                        n_elems = x[param].size
                 except ValueError:
                     raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
@@ -531,33 +537,41 @@ class SpatialSmoother ( object ):
                     except:
                         sigma_model = self.gamma
                     
-                    
-                    d1 = np.ones(nrows*ncols, dtype=np.int8)*2
-                    d1[::nrows] = 1
-                    d1 [(nrows-1)::nrows] = 1
+                    get_pixel = lambda row, col: col + ncols*row
 
-                    # The +1 or -1 diagonals are
-                    d2 = -np.ones(nrows*ncols, dtype=np.int8)
-                    d2[(nrows-1)::nrows] = 0
+                    # The lag
+                    lag = self.lag
 
-                    #DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
-                    #DYsparse = sp.dia_matrix (DYsyn, dtype=np.float32)
-                    DYsparse = sp.dia_matrix ( (d1,0), shape=(nrows*ncols, nrows*ncols)) + \
-                        sp.dia_matrix ( (np.r_[0,d2], 1), shape=(nrows*ncols, nrows*ncols)) + \
-                        sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(nrows*ncols, nrows*ncols))
+                    # Define a D1 (first order diffential operator) for COLUMNS linkages
+                    DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        dtype=np.float32)
+                    for row in xrange ( nrows  ):
+                        for col in xrange ( ncols - lag  ): 
+                            # Note how we deal with the end of line...
+                            i = get_pixel ( row, col )
+                            j = get_pixel ( row, col + lag )
+                            if self.state_grid[row, col] and \
+                                        state_grid[row,col+lag]: # Check for mask...
+                                DR [i, i] = 1.
+                                DR [i, j]  = -1
 
-                    d1 = 2*np.ones(nrows*ncols, dtype=np.int8) 
-                    d1[:ncols] = 1
-                    d1[-ncols:] = 1
+                    # Define a D1 (first order diffential operator) for ROWS linkages
+                    DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        dtype=np.float32)
 
-                    d2 = -1*np.ones(nrows*ncols, dtype=np.int8)
-                    DXsparse = sp.spdiags( [ d1, d2, d2], [0,ncols, -ncols], nrows*ncols, ncols*nrows)
+                    for row in xrange ( nrows - lag):
+                        for col in xrange ( ncols ):
+                            i = get_pixel ( row, col )
+                            j = get_pixel ( row + lag, col )
+                            if self.state_grid [ row+lag, col] and \
+                                        self.state_grid [row, col]:
+                                DC [i, i] = 1.
+                                DC [i, j]  = -1
                     
                     # Stuff this particular bit of the Hessian in the complete
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
-                    this_block [jj] = ((DYsparse + DXsparse)/\
-                                    sigma_model**2)
+                    this_block [jj] = ( (DR + DC)/sigma_model**2)
                     block_mtx.append ( this_block )
                     jj += 1          
 
@@ -1277,7 +1291,7 @@ class ObservationOperatorImageGP ( object ):
             N = x.size
         except AttributeError:
             raise OperatorDerDerTypeError('Expecting a vector')
- 
+
         # The Hessian calculations, like everything else, are done
         # in **transformed coordinates**, so we need to pack the 
         # state vector into a dictionary, ensuring that the variables
@@ -1315,7 +1329,10 @@ class ObservationOperatorImageGP ( object ):
         # the entire state grid per parameter. Note that this is not how the
         # rest of eoldas expects the matrix, so we'll have to re-arrange things
         # later
-        Nblocks = Nx * Ny
+        if self.state_grid.dtype == np.dtype ( np.bool ):
+            Nblocks = self.state_grid.sum()
+        else:
+            Nblocks = Nx * Ny
 
         # we have band uncertainties in self.bu
         # so the form of C is simplified here (will that always be so?)
@@ -1332,7 +1349,10 @@ class ObservationOperatorImageGP ( object ):
             # loop over bands
             for b in xrange(Nb):
                 # lets just deal with variable terms for now
-                data = variable_terms[b].reshape( Nvp,Nblocks )
+                if self.state_grid.dtype == np.dtype ( np.bool ):
+                    data = variable_terms[b][:, self.state_grid ]
+                else:
+                    data = variable_terms[b].reshape( Nvp, Nblocks )
                 # loop over blocks (can this be done faster?)
                 
                 # see http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.sparse.block_diag.html
