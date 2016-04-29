@@ -507,7 +507,7 @@ class SpatialSmoother ( object ):
             elif typo == VARIABLE:
                 try:
                     if (( self.state_grid.dtype == np.dtype ( np.bool )) and
-                        ( x_dict[param].size != self.state_grid.sum() ) ):
+                        ( x[param].size != self.state_grid.sum() ) ):
                         n_elems = self.state_grid.sum()
                     else:
                         n_elems = x[param].size
@@ -551,7 +551,7 @@ class SpatialSmoother ( object ):
                             i = get_pixel ( row, col )
                             j = get_pixel ( row, col + lag )
                             if self.state_grid[row, col] and \
-                                        state_grid[row,col+lag]: # Check for mask...
+                                        self.state_grid[row,col+lag]: # Check for mask...
                                 DR [i, i] = 1.
                                 DR [i, j]  = -1
 
@@ -571,7 +571,11 @@ class SpatialSmoother ( object ):
                     # Stuff this particular bit of the Hessian in the complete
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
-                    this_block [jj] = ( (DR + DC)/sigma_model**2)
+                    M = (DR + DC)/sigma_model**2
+                    
+                    this_block [jj] = M[np.outer( self.state_grid.flatten(), 
+                                    self.state_grid.flatten() )].reshape (( 
+                                        n_elems, n_elems ) )
                     block_mtx.append ( this_block )
                     jj += 1          
 
