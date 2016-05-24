@@ -115,6 +115,7 @@ class State ( object ):
         self._set_optimisation_options ( optimisation_options )
         self._create_output_file ( output_name )
         self.cost_history = { 'global': [] }
+                              'iteration': [] }
         self.iterations = 0
         self.iterations_vector = []
         
@@ -609,7 +610,7 @@ class State ( object ):
              self.cost_history[op_name].append ( cost )
              
          self.cost_history['global'].append ( aggr_cost )
-         self.cost_history['iteration'] = self.iterations
+         self.cost_history['iteration'].append ( self.iterations )
 
          
          if self.verbose:
