@@ -644,7 +644,7 @@ class ObservationOperator ( object ):
 class ObservationOperatorTimeSeriesGP ( object ):
     """A GP-based observation operator"""
     def __init__ ( self, state_grid, state, observations, mask, emulators, bu, \
-            band_pass=None, bw=None ):
+            band_pass=None, bw=None, selected_parameters=None ):
         """
          observations is an array with n_bands, nt observations. nt has to be the 
          same size as state_grid (can have dummny numbers in). mask is nt*4 
@@ -673,7 +673,11 @@ class ObservationOperatorTimeSeriesGP ( object ):
         self._sza_interval = 5
         self._vza_interval = 5
         self._ra1_interval = 15
-
+        if selected_parameters is None:
+            self.selected_parameters = [ k 
+                                        for k in state.state_config.iterkeys()]
+        else:
+            self.selected_parameters = selected_parameters
         
     
     def der_cost ( self, x_dict, state_config ):
@@ -712,13 +716,14 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 self.nt ) )
         for param, typo in state_config.iteritems():
         
-            if typo == FIXED or  typo == CONSTANT:
+            if typo == FIXED or  typo == CONSTANT \
+                    and param in self.selected_parameters:
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
                 x_params[ j, : ] = x_dict[param]
                 
-            elif typo == VARIABLE:
+            elif typo == VARIABLE and param in self.selected_parameters:
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
@@ -759,10 +764,10 @@ class ObservationOperatorTimeSeriesGP ( object ):
             
         j = 0
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
-            if typo == CONSTANT:
+            if typo == CONSTANT and param in self.selected_parameters:
                 der_cost[j] = the_derivatives[i, : ].sum()
                 j += 1
-            elif typo == VARIABLE:
+            elif typo == VARIABLE and param in self.selected_parameters:
                 n_elems = x_dict[param].size
                 der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
                 j += n_elems
@@ -834,17 +839,17 @@ class ObservationOperatorTimeSeriesGP ( object ):
         param_pattern = np.zeros ( len( state_config.items()))
         for param, typo in state_config.iteritems():
         
-            if typo == FIXED:  
+            if typo == FIXED and param in self.selected_parameters:  
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
                 x_params[ j, : ] = x_dict[param]
                 param_pattern[j] = FIXED
-            elif typo == CONSTANT:
+            elif typo == CONSTANT and param in self.selected_parameters:
                 x_params[ j, : ] = x_dict[param]
                 param_pattern[j] = CONSTANT
                 
-            elif typo == VARIABLE:
+            elif typo == VARIABLE and param in self.selected_parameters:
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
@@ -852,6 +857,12 @@ class ObservationOperatorTimeSeriesGP ( object ):
                 param_pattern[j] = VARIABLE
 
             j += 1
+            
+        #######################################################################
+        ###                 WARNING!!!!!!!!!!!!!!!                          ###
+        ### This doesn't take into account self.selected_parameters, and so ###
+        ### this will not work!!!!!!!!!!!!!!!!!!!                           ###
+        #######################################################################
         
         n_const = np.sum ( param_pattern == CONSTANT )
         n_var = np.sum ( param_pattern == VARIABLE )
