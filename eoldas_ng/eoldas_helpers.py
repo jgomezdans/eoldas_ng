@@ -126,6 +126,9 @@ class StandardStatePROSAIL ( State ):
         
         self._set_optimisation_options ( optimisation_options )
         self._create_output_file ( output_name )
+        self.cost_history = { 'global': [] }
+        self.iterations = 0
+        self.iterations_vector = []
         
         
 class StandardStateSEMIDISCRETE ( State ):
@@ -158,6 +161,9 @@ class StandardStateSEMIDISCRETE ( State ):
         else:
             self.output_name = output_name
         print "Saving results to %s" % self.output_name
+        self.cost_history = { 'global': [] }
+        self.iterations = 0
+        self.iterations_vector = []
 
 
 class CrossValidation ( object ):

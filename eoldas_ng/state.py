@@ -114,7 +114,9 @@ class State ( object ):
         
         self._set_optimisation_options ( optimisation_options )
         self._create_output_file ( output_name )
-        
+        self.cost_history = { 'global': [] }
+        self.iterations = 0
+        self.iterations_vector = []
         
         
     def _set_optimisation_options ( self, optimisation_options ):
@@ -352,6 +354,7 @@ class State ( object ):
          if not callable(the_op):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
+         self.cost_history[ op_name ] = []
      
     def _get_bounds_list ( self ):
         """Return a list with the parameter boundaries. This is required to set the 
@@ -367,6 +370,10 @@ class State ( object ):
                     for j in xrange ( self.n_elems )]
         return the_bounds
     
+    def _update_iteration ( self, x ):
+        self.iterations += 1
+        self.iterations_vector.append ( x )
+        
     def optimize ( self, x0=None, the_bounds=None, do_unc=False, ret_sol=True ):
         """Optimise the state starting from a first guess `x0`. Can also allow the 
         specification of parameter boundaries, and whether to calculate the 
@@ -405,7 +412,8 @@ class State ( object ):
             x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
             
         r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options=self.optimisation_options)
+                jac=True, bounds=the_bounds, options=self.optimisation_options,
+                callback=self._update_iteration )
         end_time = time.time()
         if self.verbose:
             if r.success:
@@ -589,18 +597,19 @@ class State ( object ):
          self.parameter_dictionary = x_dict
          aggr_cost = 0
          aggr_der_cost = x*0.0
-         self.cost_components = {}
+
          start_time = time.time()
          for op_name, the_op in self.operators.iteritems():
              
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
-             self.cost_components[op_name] = der_cost
              if self.verbose:
                  print "\t%s %8.3e" % ( op_name, cost )
-         self.the_cost = aggr_cost
-
+             self.cost_history[op_name].append ( cost )
+             
+         self.cost_history['global'].append ( aggr_cost )
+         self.cost_history['iteration'] = self.iterations
 
          
          if self.verbose:
