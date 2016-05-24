@@ -156,8 +156,11 @@ class Prior ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
+        
         if sp.issparse ( self.inv_cov ):
             x = self.pack_from_dict ( x_dict, state_config )
+            if np.isfinite(x).sum() != x.shape[0]:
+                x = x[np.isfinite(x)]
             err = sp.lil_matrix ( x - self.mu )
             cost = err.dot ( self.inv_cov ).dot ( err.T )
             der_cost  = np.array( err.dot ( self.inv_cov ).todense()).squeeze()

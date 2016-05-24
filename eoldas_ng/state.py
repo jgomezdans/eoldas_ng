@@ -574,19 +574,27 @@ class State ( object ):
 	    except OperatorDerDerTypeError:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
-            if self.verbose:
-                print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
-                    op_name )
+            ##if self.verbose:
+            ##    print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
+            ##        op_name )
             # Save the individual Hessian contributions to disk
-            cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
-                % ( self.output_name, op_name ), 'w'))
+            ##cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
+            ##    % ( self.output_name, op_name ), 'w'))
             # Add the current Hessian contribution to the global Hessian
             the_hessian = the_hessian + this_hessian
         # Need to change the sparse storage format for the Hessian to do
         # the LU decomposition
         a_sps = sp.csc_matrix( the_hessian )
         # LU decomposition object
-        lu_obj = sp.linalg.splu( a_sps )
+        try:
+            lu_obj = sp.linalg.splu( a_sps )
+        except RuntimeError:
+            nn, mm = a_sps.shape
+            mtmp = sp.dia_matrix ( (np.ones(nn)*0.01,0), shape=(nn, mm)).tocsc()
+            try:
+                lu_obj = sp.linalg.splu( a_sps + mtmp )
+            except RuntimeError:
+                import pdb; pdb.set_trace()
         # Now, invert the Hessian in order to get the main diagonal elements
         # of the inverse Hessian (e.g. the variance)
         main_diag = np.zeros_like ( x )
