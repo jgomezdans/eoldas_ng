@@ -126,7 +126,8 @@ class StandardStatePROSAIL ( State ):
         
         self._set_optimisation_options ( optimisation_options )
         self._create_output_file ( output_name )
-        self.cost_history = { 'global': [] }
+        self.cost_history = { 'global': [] ,
+			      'iteration': [] }
         self.iterations = 0
         self.iterations_vector = []
         
