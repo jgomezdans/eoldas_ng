@@ -61,10 +61,18 @@ class Prior ( object ):
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
         
+    #def _set_state_grid ( self, state_grid ):
+        #"""One might need to set the state grid if using a mask"""
+        #self.state_grid = state_grid
+        
     def pack_from_dict ( self, x_dict, state_config ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
-        get speed gains."""
+        ###get speed gains."""
+        ###try:
+            ###n, n_elems = get_problem_size ( x_dict, state_config, 
+                                           ###state_grid=self.state_grid )
+        ###except AttributeError:
         n, n_elems = get_problem_size ( x_dict, state_config )
         the_vector = np.zeros ( n )
         # Now, populate said vector in the right order
@@ -75,9 +83,9 @@ class Prior ( object ):
                 the_vector[i] = x_dict[param]
                 i = i+1        
             elif typo == VARIABLE:
-                # For this particular date, the relevant parameter is at location iloc
-                the_vector[i:(i + n_elems)] =  \
-                        x_dict[param].flatten() 
+                # For this particular date, the relevant parameter is 
+                # at location iloc        
+                the_vector[i:(i + n_elems)] = x_dict[param].flatten() 
                 i += n_elems
         return the_vector 
         
@@ -575,10 +583,17 @@ class SpatialSmoother ( object ):
                     # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
                     M = (DR + DC)/sigma_model**2
-                    
-                    this_block [jj] = M[np.outer( self.state_grid.flatten(), 
-                                    self.state_grid.flatten() )].reshape (( 
-                                        n_elems, n_elems ) )
+                    this_block[jj] = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        dtype=np.float32)
+                    for i,j in izip(self.state_grid.flatten(), self.state_grid.flatten()):
+                        if i*j:
+                            this_block[jj][i,j] = M[i,j]
+                    #xxx = np.einsum ( 'i,j', self.state_grid.flatten(),
+                    #                 self.state_grid.flatten() )
+                    #this_block [jj] = M[xxx].reshape((n_elems, n_elems))
+                    #this_block [jj] = M[np.outer( self.state_grid.flatten(), 
+                    #                self.state_grid.flatten() )].reshape (( 
+                    #                    n_elems, n_elems ) )
                     block_mtx.append ( this_block )
                     jj += 1          
 
