@@ -12,7 +12,8 @@ __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
-from itertools import izip # needed
+from itertools import izip
+
 import numpy as np
 import scipy.optimize
 import scipy.sparse as sp
@@ -238,6 +239,16 @@ class Prior ( object ):
         if sp.issparse ( self.inv_cov ):
             # We already have it!!!
             return self.inv_cov
+
+            #nrows, ncols = state.state_grid.shape
+            #h = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.float32 )
+            #iloc = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.bool )
+            #for i,j in izip(state.state_grid.flatten(), 
+                            #state.state_grid.flatten()):
+                #if i*j:
+                    #iloc[i,j] = 1.#1hh[i,j]
+            
+            #return h
         n_blocks = 0 # Blocks in sparse Hessian matrix
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
