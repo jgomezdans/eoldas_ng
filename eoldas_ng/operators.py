@@ -36,8 +36,74 @@ class AttributeDict(dict):
 class OperatorDerDerTypeError(Exception):
     """Raise this error when the wrong type of state (vector vs dictionary) is received by
        a der_der_cost method"""
+def reshape(a, shape):
+    """Reshape the sparse matrix `a`.
 
+    Returns a coo_matrix with shape `shape`.
+    """
+    if not hasattr(shape, '__len__') or len(shape) != 2:
+        raise ValueError('`shape` must be a sequence of two integers')
 
+    c = a.tocoo()
+    nrows, ncols = c.shape
+    size = nrows * ncols
+
+    new_size =  shape[0] * shape[1]
+    if new_size != size:
+        raise ValueError('total size of new array must be unchanged')
+
+    flat_indices = ncols * c.row + c.col
+    new_row, new_col = divmod(flat_indices, shape[1])
+
+    b = sp.coo_matrix((c.data, (new_row, new_col)), shape=shape)
+    return b.tolil()
+
+def calculate_spatial_constraint ( state_grid, lag ):
+    n_elems = state_grid.sum()
+    nrows, ncols = state_grid.shape
+    get_pixel = lambda row, col: col + ncols*row
+    # Define a D1 (first order diffential operator) for COLUMNS linkages
+    DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                               dtype=np.float32)
+    for row in xrange ( nrows  ):
+        for col in xrange ( ncols - lag  ): 
+            # Note how we deal with the end of line...
+            i = get_pixel ( row, col )
+            j = get_pixel ( row, col + lag )
+            # Check for mask...
+            if state_grid[row, col] and state_grid[row,col+lag]: 
+                DR [i, i] = 1.
+                DR [i, j]  = -1
+
+    # Define a D1 (first order diffential operator) for ROWS linkages
+    DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        dtype=np.float32)
+
+    for row in xrange ( nrows - lag):
+        for col in xrange ( ncols ):
+            i = get_pixel ( row, col )
+            j = get_pixel ( row + lag, col )
+            if state_grid [ row+lag, col] and state_grid [row, col]:
+                DC [i, i] = 1.
+                DC [i, j]  = -1
+                        
+    M = (DR + DC)
+    
+    
+    
+    temp_mat = sp.lil_matrix ( (1, n_elems*n_elems), 
+                    dtype=np.float32)
+    nzero = M.nonzero()
+    cntr = 0
+    
+    for (i,j) in zip (*nzero):
+        temp_mat[0,cntr] = M[i,j]
+        cntr += 1
+    
+                    
+    return reshape (temp_mat, (n_elems, n_elems))
+
+    
 
          
 ################################################################################        
@@ -514,11 +580,15 @@ class SpatialSmoother ( object ):
                 
         return cost, der_cost
     
+    
     def der_der_cost ( self, x, state_config, state, epsilon=None ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
         # need to have all mxs in sparse format, otherwise, they
         # don't fit in memory.
+        
+        self.required_params = self.required_params or state_config.keys()
+
         block_mtx = []
         n = 0
         n_blocks = 0 # Blocks in sparse Hessian matrix
@@ -541,6 +611,9 @@ class SpatialSmoother ( object ):
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
         nrows, ncols = self.nx # Needs checking...
         jj = 0
+        print "Calculating spatial constraint mtx"
+        M = calculate_spatial_constraint ( self.state_grid, self.lag )
+        print "Done calculating spatial constraint mtx"
         for param, typo in state_config.iteritems():    
             if typo == FIXED: # Default value for all times
                 # Doesn't do anything so we just skip
@@ -559,53 +632,53 @@ class SpatialSmoother ( object ):
                         sigma_model = self.gamma[param]
                     except:
                         sigma_model = self.gamma
-                    
-                    get_pixel = lambda row, col: col + ncols*row
-
-                    # The lag
-                    lag = self.lag
-
-                    # Define a D1 (first order diffential operator) for COLUMNS linkages
-                    DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
-                                        dtype=np.float32)
-                    for row in xrange ( nrows  ):
-                        for col in xrange ( ncols - lag  ): 
-                            # Note how we deal with the end of line...
-                            i = get_pixel ( row, col )
-                            j = get_pixel ( row, col + lag )
-                            if self.state_grid[row, col] and \
-                                        self.state_grid[row,col+lag]: # Check for mask...
-                                DR [i, i] = 1.
-                                DR [i, j]  = -1
-
-                    # Define a D1 (first order diffential operator) for ROWS linkages
-                    DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
-                                        dtype=np.float32)
-
-                    for row in xrange ( nrows - lag):
-                        for col in xrange ( ncols ):
-                            i = get_pixel ( row, col )
-                            j = get_pixel ( row + lag, col )
-                            if self.state_grid [ row+lag, col] and \
-                                        self.state_grid [row, col]:
-                                DC [i, i] = 1.
-                                DC [i, j]  = -1
-                    
-                    # Stuff this particular bit of the Hessian in the complete
-                    # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
-                    M = (DR + DC)/sigma_model**2
-                    this_block[jj] = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
-                                        dtype=np.float32)
-                    for i,j in izip(self.state_grid.flatten(), self.state_grid.flatten()):
-                        if i*j:
-                            this_block[jj][i,j] = M[i,j]
-                    #xxx = np.einsum ( 'i,j', self.state_grid.flatten(),
-                    #                 self.state_grid.flatten() )
-                    #this_block [jj] = M[xxx].reshape((n_elems, n_elems))
-                    #this_block [jj] = M[np.outer( self.state_grid.flatten(), 
-                    #                self.state_grid.flatten() )].reshape (( 
-                    #                    n_elems, n_elems ) )
+                    #####get_pixel = lambda row, col: col + ncols*row
+
+                    ###### The lag
+                    #####lag = self.lag
+
+                    ###### Define a D1 (first order diffential operator) for COLUMNS linkages
+                    #####DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        #####dtype=np.float32)
+                    #####for row in xrange ( nrows  ):
+                        #####for col in xrange ( ncols - lag  ): 
+                            ###### Note how we deal with the end of line...
+                            #####i = get_pixel ( row, col )
+                            #####j = get_pixel ( row, col + lag )
+                            #####if self.state_grid[row, col] and \
+                                        #####self.state_grid[row,col+lag]: # Check for mask...
+                                #####DR [i, i] = 1.
+                                #####DR [i, j]  = -1
+
+                    ###### Define a D1 (first order diffential operator) for ROWS linkages
+                    #####DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        #####dtype=np.float32)
+
+                    #####for row in xrange ( nrows - lag):
+                        #####for col in xrange ( ncols ):
+                            #####i = get_pixel ( row, col )
+                            #####j = get_pixel ( row + lag, col )
+                            #####if self.state_grid [ row+lag, col] and \
+                                        #####self.state_grid [row, col]:
+                                #####DC [i, i] = 1.
+                                #####DC [i, j]  = -1
+                    
+                    ###### Stuff this particular bit of the Hessian in the complete
+                    ###### big matrix...
+                    #####this_block = [ None for i in xrange(n_blocks) ]
+                    #####M = (DR + DC)/sigma_model**2
+                    ####temp_mat = sp.lil_matrix ( (1, n_elems*n_elems), 
+                                              ####dtype=np.float32)
+                    #####this_block[jj] = sp.lil_matrix ( (n_elems, n_elems), 
+                    #####                    dtype=np.float32)
+                    ####for iloc, (i,j) in enumerate ( izip( 
+                        ####self.state_grid.flatten(), self.state_grid.flatten())):
+                        ####if i*j:
+                            ####temp_mat[iloc] = M[i,j]
+                    
+                    this_block[jj] = M/sigma_model**2#temp_mat.reshape((n_elems, n_elems))
+                    
                     block_mtx.append ( this_block )
                     jj += 1          
 
