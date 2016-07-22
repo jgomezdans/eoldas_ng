@@ -12,7 +12,7 @@ __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
-
+from itertools import izip # needed
 import numpy as np
 import scipy.optimize
 import scipy.sparse as sp
