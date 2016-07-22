@@ -239,16 +239,17 @@ class Prior ( object ):
         if sp.issparse ( self.inv_cov ):
             # We already have it!!!
             return self.inv_cov
-
-            #nrows, ncols = state.state_grid.shape
-            #h = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.float32 )
-            #iloc = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.bool )
-            #for i,j in izip(state.state_grid.flatten(), 
-                            #state.state_grid.flatten()):
-                #if i*j:
-                    #iloc[i,j] = 1.#1hh[i,j]
-            
-            #return h
+            ####nn,mm = self.inv_cov.shape
+            ####nrows, ncols = state.state_grid.shape
+            ####M = self.inv_cov.tolil().reshape ( (1, nn*mm))
+            ##### M is now a flattened version of the sparse matrix
+            ####nrows, ncols = state.state_grid.shape
+            ####h = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.float32 )
+            ####for iloc,(i,j) in enumerate(izip(state.state_grid.flatten(), 
+                            ####state.state_grid.flatten())):
+                ####if i*j:
+                    ####h[i,j] = M[0,iloc]
+            ####return h
         n_blocks = 0 # Blocks in sparse Hessian matrix
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:

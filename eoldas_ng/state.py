@@ -568,6 +568,7 @@ class State ( object ):
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
+            print "Uncertainty calcs for ", op_name
             try:
                this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
