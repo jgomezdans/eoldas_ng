@@ -110,7 +110,7 @@ def perband_emulators ( emulators, band_pass ):
         emus.append ( gp )
     return emus
 
-def get_problem_size ( x_dict, state_config ):
+def get_problem_size ( x_dict, state_config, state_grid=None ):
     """This function reports
     1. The number of parameters `n_params`
     2. The size of the state
@@ -127,7 +127,10 @@ def get_problem_size ( x_dict, state_config ):
         if typo == CONSTANT:
             n_params += 1
         elif typo == VARIABLE:
-            n_elems = x_dict[param].size
+            if state_grid is None:
+                n_elems = x_dict[param].size
+            else:
+                n_elems = state_grid.sum()
             n_params += n_elems
     return n_params, n_elems
 
@@ -170,7 +173,7 @@ def fwd_model ( gp, x, R, band_unc, band_pass, bw ):
     
     return cost, np.array( der_cost ).squeeze().sum(axis=0), fwd_model_obs, gradient
 
-def downsample(myarr,factorx,factory):
+def downsample(myarr,factorx,factory, aggr="mean"):
     """
     Downsample a 2D array by averaging over *factor* pixels in each axis.
     Crops upper edge if the shape is not a multiple of factor.
@@ -180,9 +183,16 @@ def downsample(myarr,factorx,factory):
     """
     xs,ys = myarr.shape
     crarr = myarr[:xs-(xs % int(factorx)),:ys-(ys % int(factory))]
-    dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
-        for i in range(factorx)] 
-        for j in range(factory)]).mean(axis=0)
+    if aggr == "mean":
+        dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
+            for i in range(factorx)] 
+            for j in range(factory)]).mean(axis=0)
+    elif aggr == "sum":
+        dsarr = np.concatenate([[crarr[i::factorx,j::factory] 
+            for i in range(factorx)] 
+            for j in range(factory)]).sum(axis=0)
+    else:
+        raise NotImplementedError
     return dsarr
 
 def fit_smoothness (  x, sigma_model  ):
@@ -193,17 +203,25 @@ def fit_smoothness (  x, sigma_model  ):
     rows and columns. Also note that we could have different weights
     for x and y smoothing (indeed, diagonal smoothing) quite simply
     """
+    
+    ## Comments on state grid. If we set up the state grid cell locations to
+    # e.g. NaN, then using np.nansum can be used to calculate `j_model`.
+    # for the derivative, the der_j_model terms would be set to nan, so they
+    # can be filtered later on in the caller when squeezing the array into a
+    # gradient vector
     # Build up the 8-neighbours
-    hood = np.array ( [  x[:-2, :-2], x[:-2, 1:-1], x[ :-2, 2: ], \
-                    x[ 1:-1,:-2], x[1:-1, 2:], \
-                    x[ 2:,:-2], x[ 2:, 1:-1], x[ 2:, 2:] ] )
+    hood = np.array ( [  x[:-2, :-2],  x[:-2, 1:-1], x[ :-2, 2: ], 
+                         x[ 1:-1,:-2],               x[1:-1, 2:], 
+                         x[ 2:,:-2],   x[ 2:, 1:-1], x[ 2:, 2:] ] )
     j_model = 0
     der_j_model = x*0
+    
     for i in [1,3,4,6]:#range(8):
-        j_model = j_model + 0.5*np.sum ( ( hood[i,:,:] - \
-      x[1:-1,1:-1] )**2 )/sigma_model**2
-        der_j_model[1:-1,1:-1] = der_j_model[1:-1,1:-1] - \
-      ( hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
+        j_model = j_model + ( 0.5*np.nansum ( ( hood[i,:,:] -  x[1:-1,1:-1] )**2 )/
+                             sigma_model**2 )
+        der_j_model[1:-1,1:-1] = der_j_model[1:-1,1:-1] - ( 
+                             hood[i,:,:] - x[1:-1,1:-1] )/sigma_model**2
+
     return ( j_model, 2*der_j_model )
 
 def fit_observations_gauss ( x, obs, sigma_obs, qa, factor=1 ):

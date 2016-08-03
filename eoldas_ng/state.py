@@ -98,6 +98,16 @@ class State ( object ):
         self.state_config = state_config
         self.state_grid = state_grid
         self.n_elems =  self.state_grid.size
+        # We now test whether the state mask is operational. We need to
+        # check the type of the array in order not to break compatibility
+        # In the future, this is just wasteful!
+        
+        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and 
+                    ( self.n_elems != self.state_grid.sum())):
+            self.n_elems_masked = self.state_grid.sum()
+        else:
+            self.n_elems_masked = self.n_elems
+        # self.n_elems_masked is the number of "valid" grid cells
         self.default_values = default_values
         self.operators = {}
         self.n_params = self._state_vector_size ()
@@ -110,13 +120,11 @@ class State ( object ):
                 self.parameter_max[param] ] )
         self.invtransformation_dict = {}
         self.transformation_dict = {}
-        
-        
         self._set_optimisation_options ( optimisation_options )
-        self._create_output_file ( output_name )
-        self.cost_history = { 'global': [], 
+        self.cost_history = { 'global': [],
                               'iteration': [] }
-        self.iterations = 0
+        self._create_output_file ( output_name )
+        self.iterations = 0 
         self.iterations_vector = []
         
         
@@ -196,13 +204,14 @@ class State ( object ):
                 
     def _state_vector_size ( self ):
         """Returns the size of the state vector going over the 
-        state grid and state config dictionary."""
+        state grid and state config dictionary.
+        TODO: doesn't take into account state mask!"""
         n_params = 0
         for param, typo in self.state_config.iteritems():
             if typo == CONSTANT:
                 n_params  += 1
             elif typo == VARIABLE:
-                n_params  += self.n_elems
+                n_params  += self.n_elems_masked
         return n_params
         
     def pack_from_dict ( self, x_dict, do_transform=False ):
@@ -240,13 +249,23 @@ class State ( object ):
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
                 if do_transform and self.transformation_dict.has_key ( param ):
-                    the_vector[i:(i + self.n_elems)] =  \
-                        self.transformation_dict[param] ( \
-                            x_dict[param].flatten() )
+                    try:
+                        the_vector[i:(i + self.n_elems_masked)] =  (
+                            self.transformation_dict[param] ( 
+                                x_dict[param].flatten() ) )
+                    except ValueError: # We need to take the state mask into
+                                       # account ;(
+                        the_vector[i:(i + self.n_elems_masked)] =  (
+                            self.transformation_dict[param] ( 
+                                x_dict[param][self.state_grid] ) )
                 else:
-                    the_vector[i:(i + self.n_elems)] =  \
-                        x_dict[param].flatten() 
-                i += self.n_elems
+                    try:
+                        the_vector[i:(i + self.n_elems_masked)] =  \
+                            x_dict[param].flatten() 
+                    except ValueError:
+                        the_vector[i:(i + self.n_elems_masked)] =  \
+                            x_dict[param][self.state_grid]
+                i += self.n_elems_masked
         return the_vector 
     
     def _unpack_to_dict ( self, x, do_transform=False, do_invtransform=False ):
@@ -310,27 +329,50 @@ class State ( object ):
                 i += 1
                 
             elif typo == VARIABLE:
-                if do_transform and self.transformation_dict.has_key ( \
-                        param ):
-                    the_dict[param] = self.transformation_dict[param] ( \
-                        x[i:(i+self.n_elems )]).reshape( \
-                        self.state_grid.shape )
+                # Issue here is that we have the state mask to worry about
+                if do_transform and self.transformation_dict.has_key (                                  
+                            param ):
+                     xx = self.transformation_dict[param] ( 
+                        x[i:(i+self.n_elems_masked )] )
+                     if self.n_elems == self.n_elems_masked:
+                         # No state mask
+                        the_dict[param] = xx.reshape ( self.state_grid.shape )
+                     else:
+                        # State mask is present, so have a temporary array
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = xx
+                        the_dict[param] = xxx
+                        
                 elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
                     p1 = self.transformation_dict[param] ( self.parameter_max[param] )
                     p2 = self.transformation_dict[param] ( self.parameter_min[param] )
                     pmax = max ( p1, p2 )
                     pmin = min ( p1, p2 )
-                    xx = np.clip ( x[i:(i+self.n_elems )].reshape( \
-                        self.state_grid.shape), p1, p2 )
+                    xx = np.clip ( x[i:(i+self.n_elems_masked )], p1, p2 )
                     
+                    if self.n_elems == self.n_elems_masked:
+                         # No state mask
+                        xxx = xx.reshape ( self.state_grid.shape )
+                    else:
+                        # State mask is present, so have a temporary array
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = xx
+                        #the_dict[param] = xxx
 
-                    the_dict[param] = self.invtransformation_dict[param] ( xx )
+                    
+                    
+                    the_dict[param] = self.invtransformation_dict[param] ( xxx )
 
                 else:
-                    the_dict[param] = x[i:(i+self.n_elems )].reshape( \
-                        self.state_grid.shape )
-                i += self.n_elems
+                    if self.n_elems == self.n_elems_masked:
+                        the_dict[param] = x[i:(i+self.n_elems_masked )].reshape( 
+                            self.state_grid.shape )
+                    else:
+                        xxx = np.nan*np.ones_like ( self.state_grid )
+                        xxx[self.state_grid] = x[i:(i+self.n_elems_masked )]
+                        the_dict[param] = xxx
+                i += self.n_elems_masked
             
         return the_dict
     
@@ -355,7 +397,7 @@ class State ( object ):
          if not callable(the_op):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
-         self.cost_history[ op_name ] = []
+         self.cost_history [op_name] = []
      
     def _get_bounds_list ( self ):
         """Return a list with the parameter boundaries. This is required to set the 
@@ -368,8 +410,12 @@ class State ( object ):
             elif typo == VARIABLE:
                 
                 [ the_bounds.append ( self.bounds[i] ) \
-                    for j in xrange ( self.n_elems )]
+                    for j in xrange ( self.n_elems_masked    )]
         return the_bounds
+
+    def _update_iteration ( self, x ):
+        self.iterations += 1
+        self.iterations_vector.append ( x )
     
     def _update_iteration ( self, x ):
         self.iterations += 1
@@ -410,8 +456,11 @@ class State ( object ):
             raise NotImplementedError
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
-            x0 = self.operators[x0].first_guess( self.state_config, self.state_grid.size )
-            
+            x0 = self.operators[x0].first_guess( self.state_config,    
+                                                self.state_grid.size )
+            if len ( x0 ) > 1:
+                x0 = self.pack_from_dict ( x0[0], do_transform=True )
+
         r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
                 jac=True, bounds=the_bounds, options=self.optimisation_options,
                 callback=self._update_iteration )
@@ -530,25 +579,34 @@ class State ( object ):
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
+            
             try:
                this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
 	    except OperatorDerDerTypeError:
                 this_hessian = the_op.der_der_cost ( x, self.state_config, \
                     self, epsilon=epsilon )
-            if self.verbose:
-                print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
-                    op_name )
+            ##if self.verbose:
+            ##    print "Saving Hessian to %s_%s.pkl" % ( self.output_name, \
+            ##        op_name )
             # Save the individual Hessian contributions to disk
-            cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
-                % ( self.output_name, op_name ), 'w'))
+            ##cPickle.dump ( this_hessian, open( "%s_%s_hessian.pkl" \
+            ##    % ( self.output_name, op_name ), 'w'))
             # Add the current Hessian contribution to the global Hessian
             the_hessian = the_hessian + this_hessian
         # Need to change the sparse storage format for the Hessian to do
         # the LU decomposition
         a_sps = sp.csc_matrix( the_hessian )
         # LU decomposition object
-        lu_obj = sp.linalg.splu( a_sps )
+        try:
+            lu_obj = sp.linalg.splu( a_sps )
+        except RuntimeError:
+            nn, mm = a_sps.shape
+            mtmp = sp.dia_matrix ( (np.ones(nn)*0.01,0), shape=(nn, mm)).tocsc()
+            try:
+                lu_obj = sp.linalg.splu( a_sps + mtmp )
+            except RuntimeError:
+                import pdb; pdb.set_trace()
         # Now, invert the Hessian in order to get the main diagonal elements
         # of the inverse Hessian (e.g. the variance)
         main_diag = np.zeros_like ( x )
@@ -608,10 +666,9 @@ class State ( object ):
              if self.verbose:
                  print "\t%s %8.3e" % ( op_name, cost )
              self.cost_history[op_name].append ( cost )
-             
-         self.cost_history['global'].append ( aggr_cost )
+         self.the_cost = aggr_cost
+         self.cost_history['global'].append (aggr_cost)
          self.cost_history['iteration'].append ( self.iterations )
-
          
          if self.verbose:
              print "Total cost: %8.3e" % aggr_cost

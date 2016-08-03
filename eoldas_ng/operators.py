@@ -12,11 +12,14 @@ __version__ = "1.0 (1.12.2013)"
 __email__   = "j.gomez-dans@ucl.ac.uk"
 
 from collections import OrderedDict
+from itertools import izip
 
 import numpy as np
 import scipy.optimize
 import scipy.sparse as sp
 from scipy.ndimage.interpolation import zoom
+
+import matplotlib.pyplot as plt
 
 from eoldas_utils import *
 
@@ -33,8 +36,69 @@ class AttributeDict(dict):
 class OperatorDerDerTypeError(Exception):
     """Raise this error when the wrong type of state (vector vs dictionary) is received by
        a der_der_cost method"""
+def reshape(a, shape):
+    """Reshape the sparse matrix `a`.
 
+    Returns a coo_matrix with shape `shape`.
+    """
+    if not hasattr(shape, '__len__') or len(shape) != 2:
+        raise ValueError('`shape` must be a sequence of two integers')
 
+    c = a.tocoo()
+    nrows, ncols = c.shape
+    size = nrows * ncols
+
+    new_size =  shape[0] * shape[1]
+    if new_size != size:
+        raise ValueError('total size of new array must be unchanged')
+
+    flat_indices = ncols * c.row + c.col
+    new_row, new_col = divmod(flat_indices, shape[1])
+
+    b = sp.coo_matrix((c.data, (new_row, new_col)), shape=shape)
+    return b.tolil()
+
+def calculate_spatial_constraint ( state_grid, lag ):
+    n_elems = state_grid.sum()
+    nrows, ncols = state_grid.shape
+    get_pixel = lambda row, col: col + ncols*row
+    # Define a D1 (first order diffential operator) for COLUMNS linkages
+    DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                               dtype=np.float32)
+    for row in xrange ( nrows  ):
+        for col in xrange ( ncols - lag  ): 
+            # Note how we deal with the end of line...
+            i = get_pixel ( row, col )
+            j = get_pixel ( row, col + lag )
+            # Check for mask...
+            if state_grid[row, col] and state_grid[row,col+lag]: 
+                DR [i, i] = 1.
+                DR [i, j]  = -1
+
+    # Define a D1 (first order diffential operator) for ROWS linkages
+    DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        dtype=np.float32)
+
+    for row in xrange ( nrows - lag):
+        for col in xrange ( ncols ):
+            i = get_pixel ( row, col )
+            j = get_pixel ( row + lag, col )
+            if state_grid [ row+lag, col] and state_grid [row, col]:
+                DC [i, i] = 1.
+                DC [i, j]  = -1
+                        
+    M = (DR + DC)
+    
+    #grid_true = np.where ( state_grid.flatten()) [0]
+    #R = sp.csr_matrix ( M[grid_true[:, np.newaxis], grid_true[np.newaxis, :] ] )
+    # This is the target output. It's a filtered version of M, with only the 
+    # elements that appear in the outer product selected    
+    
+    A = np.einsum ("i,j", state_grid.flatten(), state_grid.flatten())
+    R = sp.csr_matrix ( (A*M)[state_grid.flatten(), :][:, state_grid.flatten()])
+    return R
+
+    
 
          
 ################################################################################        
@@ -59,10 +123,18 @@ class Prior ( object ):
         self.mu = prior_mu
         self.inv_cov = prior_inv_cov
         
+    #def _set_state_grid ( self, state_grid ):
+        #"""One might need to set the state grid if using a mask"""
+        #self.state_grid = state_grid
+        
     def pack_from_dict ( self, x_dict, state_config ):
         """This method returns a vector from a dictionary and state configuration
         object. The idea is to use this with the prior sparse represntation, to
-        get speed gains."""
+        ###get speed gains."""
+        ###try:
+            ###n, n_elems = get_problem_size ( x_dict, state_config, 
+                                           ###state_grid=self.state_grid )
+        ###except AttributeError:
         n, n_elems = get_problem_size ( x_dict, state_config )
         the_vector = np.zeros ( n )
         # Now, populate said vector in the right order
@@ -73,9 +145,9 @@ class Prior ( object ):
                 the_vector[i] = x_dict[param]
                 i = i+1        
             elif typo == VARIABLE:
-                # For this particular date, the relevant parameter is at location iloc
-                the_vector[i:(i + n_elems)] =  \
-                        x_dict[param].flatten() 
+                # For this particular date, the relevant parameter is 
+                # at location iloc        
+                the_vector[i:(i + n_elems)] = x_dict[param].flatten() 
                 i += n_elems
         return the_vector 
         
@@ -154,8 +226,11 @@ class Prior ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
+        
         if sp.issparse ( self.inv_cov ):
             x = self.pack_from_dict ( x_dict, state_config )
+            if np.isfinite(x).sum() != x.shape[0]:
+                x = x[np.isfinite(x)]
             err = sp.lil_matrix ( x - self.mu )
             cost = err.dot ( self.inv_cov ).dot ( err.T )
             der_cost  = np.array( err.dot ( self.inv_cov ).todense()).squeeze()
@@ -225,6 +300,17 @@ class Prior ( object ):
         if sp.issparse ( self.inv_cov ):
             # We already have it!!!
             return self.inv_cov
+            ####nn,mm = self.inv_cov.shape
+            ####nrows, ncols = state.state_grid.shape
+            ####M = self.inv_cov.tolil().reshape ( (1, nn*mm))
+            ##### M is now a flattened version of the sparse matrix
+            ####nrows, ncols = state.state_grid.shape
+            ####h = sp.lil_matrix ( (nrows*ncols, nrows*ncols), dtype=np.float32 )
+            ####for iloc,(i,j) in enumerate(izip(state.state_grid.flatten(), 
+                            ####state.state_grid.flatten())):
+                ####if i*j:
+                    ####h[i,j] = M[0,iloc]
+            ####return h
         n_blocks = 0 # Blocks in sparse Hessian matrix
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
@@ -264,13 +350,19 @@ class Prior ( object ):
 
 class TemporalSmoother ( object ):
     """A temporal smoother class"""
-    def __init__ ( self, state_grid, gamma, order=1, required_params = None  ):
+    def __init__ ( self, state_grid, gamma, lag=1, order=1, required_params = None  ):
         """A simple temporal smoother or Tikhonov constraint. The class
         requires the state grid, a value (or values) of the regularisation
         constant, ``gamma``, the order (by default is one, but could be other),
         and a potential indication to what parameters should the regularisation
         be applied to. Note that these parameters need to be set to VARIABLE, 
-        otherwise regularisation doesn't make any sense.
+        otherwise regularisation doesn't make any sense. The default ``lag`` 
+        value is 1, meaning that the regularisation constraint is taking between
+        adjacents time steps in the state grid. You can change that to any value
+        you want. The idea is that you can extend your fast time scale lag (e.g.
+        daily) with an additional lag constraint (e.g. annual).
+        
+        TODO Still using Numpy's matrices, which is somehow poor coding choice
         
         Parameters
         ------------
@@ -280,6 +372,10 @@ class TemporalSmoother ( object ):
             The regularisation constant (or constants). If ``gamma`` is a vector,
             the positions in the vector relate to the positions in 
             ``required_params``.
+        lag: int
+            The lag to which the regularisation is applied to. By default, is 
+            "next" neighbour, but in some cases, you might want to add different
+            lags.
         order: int
             The order of the regularisation TODO This is still a bit vague!
         required_params: None or array
@@ -287,10 +383,12 @@ class TemporalSmoother ( object ):
         """
         self.order = order
         self.n_elems = state_grid.shape[0]
+        # Create the regularisation matrix
         I = np.identity( state_grid.shape[0] )
-        self.D1 = np.matrix(I - np.roll(I,1))
-        self.D1 = self.D1 * self.D1.T
-        
+        m = np.matrix(I - np.roll(I,1))
+	self.D = sp.dia_matrix ( m )
+        self.D1 = sp.dia_matrix ( m * m.T )
+
         self.required_params = required_params
         if required_params is not None:
             n_reg_params = len ( required_params )
@@ -324,7 +422,6 @@ class TemporalSmoother ( object ):
         cost = 0
         n = 0
         self.required_params = self.required_params or state_config.keys()
-        
         n, n_elems = get_problem_size ( x_dict, state_config )        
         der_cost = np.zeros ( n )
         isel_param = 0
@@ -337,12 +434,11 @@ class TemporalSmoother ( object ):
                 i += 1                
             elif typo == VARIABLE:
                 if param in self.required_params :
-                    xa = np.matrix ( x_dict[param] )
-                    cost = cost + \
-                        0.5*self.gamma[self.required_params.index ( param ) ]*(np.sum(np.array(self.D1.dot(xa.T))**2))
-                    der_cost[i:(i+self.n_elems)] = np.array( \
-                        self.gamma[self.required_params.index ( param ) ]*np.dot((self.D1).T, \
-                        self.D1*np.matrix(xa).T)).squeeze()
+                    this_gamma = self.gamma[self.required_params.index ( param ) ]
+                    xa = x_dict[param]
+                    cost = cost + 0.5*this_gamma* xa.dot(self.D1.dot(xa))
+                    der_cost[i:(i+self.n_elems)] =  ( this_gamma *
+                                                self.D1.dot ( xa ) )
                     isel_param += 1
                 i += self.n_elems
                 
@@ -404,10 +500,12 @@ class TemporalSmoother ( object ):
 
 class SpatialSmoother ( object ):
     """MRF prior"""
-    def __init__ ( self, state_grid, gamma, required_params = None  ):
-        self.nx = state_grid.shape
+    def __init__ ( self, state_grid, gamma, required_params = None, lag=1  ):
+        self.state_grid = state_grid
+        self.nx = self.state_grid.shape
         self.gamma = gamma
         self.required_params = required_params
+        self.lag = lag
         
     def der_cost ( self, x_dict, state_config):
         """Calculate the cost function and its partial derivs for a spatial 
@@ -434,8 +532,9 @@ class SpatialSmoother ( object ):
         n = 0
         self.required_params = self.required_params or state_config.keys()
         
-        n, n_elems = get_problem_size ( x_dict, state_config )
         
+        n, n_elems = get_problem_size ( x_dict, state_config, 
+                                       state_grid=self.state_grid )
         der_cost = np.zeros ( n )
 
         for param, typo in state_config.iteritems():
@@ -455,32 +554,48 @@ class SpatialSmoother ( object ):
                     try:
                         sigma_model = self.gamma[ \
                             self.required_params.index(param) ]
-                    except:
+                    except TypeError:
                         sigma_model = self.gamma
-                   
+                        
                     xa = x_dict[param].reshape( self.nx )
+                    xa[~self.state_grid] = np.nan
                     cost, dcost = fit_smoothness ( xa, sigma_model )
-                    der_cost[i:(i+n_elems)] = dcost.flatten()
+                    # Here we probably need to subset/rejiggle stuff...
+                    if self.state_grid.dtype == np.dtype ( np.bool ):
+                        tempo = dcost[self.state_grid]
+                        tempo[np.isnan(tempo)] = 0.
+                        der_cost[i:(i+n_elems)] = tempo
+                    else:
+                        der_cost[i:(i+n_elems)] = dcost.flatten()
                 i += n_elems
                 
                 
         return cost, der_cost
+    
     
     def der_der_cost ( self, x, state_config, state, epsilon=None ):
         # TODO Clear how it goes for single parameter, but for
         # multiparameter, it can easily get tricky. Also really
         # need to have all mxs in sparse format, otherwise, they
         # don't fit in memory.
+        
+        self.required_params = self.required_params or state_config.keys()
+
         block_mtx = []
         n = 0
         n_blocks = 0 # Blocks in sparse Hessian matrix
+        
         for param, typo in state_config.iteritems():
             if typo == CONSTANT:
                 n += 1
                 n_blocks += 1
             elif typo == VARIABLE:
                 try:
-                    n_elems = x[param].size
+                    if (( self.state_grid.dtype == np.dtype ( np.bool )) and
+                        ( x[param].size != self.state_grid.sum() ) ):
+                        n_elems = self.state_grid.sum()
+                    else:
+                        n_elems = x[param].size
                 except ValueError:
                     raise OperatorDerDerTypeError('Expecting a vector')
                 n += n_elems
@@ -488,6 +603,9 @@ class SpatialSmoother ( object ):
         #h = sp.lil_matrix ( (n ,n ), dtype=np.float32 )
         nrows, ncols = self.nx # Needs checking...
         jj = 0
+        print "Calculating spatial constraint mtx"
+        M = calculate_spatial_constraint ( self.state_grid, self.lag )
+        print "Done calculating spatial constraint mtx"
         for param, typo in state_config.iteritems():    
             if typo == FIXED: # Default value for all times
                 # Doesn't do anything so we just skip
@@ -506,34 +624,53 @@ class SpatialSmoother ( object ):
                         sigma_model = self.gamma[param]
                     except:
                         sigma_model = self.gamma
-                    
-                    
-                    d1 = np.ones(nrows*ncols, dtype=np.int8)*2
-                    d1[::nrows] = 1
-                    d1 [(nrows-1)::nrows] = 1
-
-                    # The +1 or -1 diagonals are
-                    d2 = -np.ones(nrows*ncols, dtype=np.int8)
-                    d2[(nrows-1)::nrows] = 0
-
-                    #DYsyn = np.diag(d1,k=0) + np.diag(d2[:-1],k=1) + np.diag(d2[:-1],k=-1)
-                    #DYsparse = sp.dia_matrix (DYsyn, dtype=np.float32)
-                    DYsparse = sp.dia_matrix ( (d1,0), shape=(nrows*ncols, nrows*ncols)) + \
-                        sp.dia_matrix ( (np.r_[0,d2], 1), shape=(nrows*ncols, nrows*ncols)) + \
-                        sp.dia_matrix ( (np.r_[d2, 0], -1), shape=(nrows*ncols, nrows*ncols))
-
-                    d1 = 2*np.ones(nrows*ncols, dtype=np.int8) 
-                    d1[:ncols] = 1
-                    d1[-ncols:] = 1
-
-                    d2 = -1*np.ones(nrows*ncols, dtype=np.int8)
-                    DXsparse = sp.spdiags( [ d1, d2, d2], [0,ncols, -ncols], nrows*ncols, ncols*nrows)
-                    
-                    # Stuff this particular bit of the Hessian in the complete
-                    # big matrix...
                     this_block = [ None for i in xrange(n_blocks) ]
-                    this_block [jj] = ((DYsparse + DXsparse)/\
-                                    sigma_model**2)
+                    #####get_pixel = lambda row, col: col + ncols*row
+
+                    ###### The lag
+                    #####lag = self.lag
+
+                    ###### Define a D1 (first order diffential operator) for COLUMNS linkages
+                    #####DR = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        #####dtype=np.float32)
+                    #####for row in xrange ( nrows  ):
+                        #####for col in xrange ( ncols - lag  ): 
+                            ###### Note how we deal with the end of line...
+                            #####i = get_pixel ( row, col )
+                            #####j = get_pixel ( row, col + lag )
+                            #####if self.state_grid[row, col] and \
+                                        #####self.state_grid[row,col+lag]: # Check for mask...
+                                #####DR [i, i] = 1.
+                                #####DR [i, j]  = -1
+
+                    ###### Define a D1 (first order diffential operator) for ROWS linkages
+                    #####DC = sp.lil_matrix ( (nrows*ncols, nrows*ncols), 
+                                        #####dtype=np.float32)
+
+                    #####for row in xrange ( nrows - lag):
+                        #####for col in xrange ( ncols ):
+                            #####i = get_pixel ( row, col )
+                            #####j = get_pixel ( row + lag, col )
+                            #####if self.state_grid [ row+lag, col] and \
+                                        #####self.state_grid [row, col]:
+                                #####DC [i, i] = 1.
+                                #####DC [i, j]  = -1
+                    
+                    ###### Stuff this particular bit of the Hessian in the complete
+                    ###### big matrix...
+                    #####this_block = [ None for i in xrange(n_blocks) ]
+                    #####M = (DR + DC)/sigma_model**2
+                    ####temp_mat = sp.lil_matrix ( (1, n_elems*n_elems), 
+                                              ####dtype=np.float32)
+                    #####this_block[jj] = sp.lil_matrix ( (n_elems, n_elems), 
+                    #####                    dtype=np.float32)
+                    ####for iloc, (i,j) in enumerate ( izip( 
+                        ####self.state_grid.flatten(), self.state_grid.flatten())):
+                        ####if i*j:
+                            ####temp_mat[iloc] = M[i,j]
+                    
+                    this_block[jj] = M/sigma_model**2#temp_mat.reshape((n_elems, n_elems))
+                    
                     block_mtx.append ( this_block )
                     jj += 1          
 
@@ -941,6 +1078,10 @@ class ObservationOperatorImageGP ( object ):
          
         """
         self.state = state
+        if state.state_grid.dtype is np.dtype('bool'):
+            self.state_grid = state.state_grid
+        else: 
+            self.state_grid = np.ones_like ( state.state_grid, dtype=np.bool )
         self.observations = observations
         try:
             self.n_bands, self.nx, self.ny = self.observations.shape
@@ -966,7 +1107,17 @@ class ObservationOperatorImageGP ( object ):
         self.bw = bw
         self.factor = factor
         self.fwd_modelled_obs = np.zeros_like ( self.observations )
-
+        self.iteration = 0
+        
+    def _plot ( self ):
+        plt.figure()
+        plt.imshow ( self.fwd_modelled_obs[2], interpolation='nearest', vmin=0,
+                    vmax=0.4 )
+        plt.savefig("nir_iter_%04d.png"%self.iteration, dpi=72 )
+        self.iteration = self.iteration + 1
+        plt.close()
+        
+        
     def first_guess ( self, state_config, do_unc=False ):
         """
         A method to provide a first guess of the state. The idea here is to take the GPs, 
@@ -980,19 +1131,24 @@ class ObservationOperatorImageGP ( object ):
         if do_unc:
             s0 = dict()
         x0 = dict()        
+        if self.factor == 1 or self.factor is None:
+            mask = self.mask * self.state_grid
+        else:
+            print "The state mask needs to be resampled..."
         for param, gp in gps.iteritems():
             x0[param] = np.zeros_like( self.observations[0,:, :].flatten())
             if do_unc:
                 s0[param] = np.zeros_like( self.observations[0,:, :].flatten())
-            xsol = gp.predict( self.observations[:, self.mask].T, do_unc=False )
-            x0[param][self.mask.flatten()] = xsol[0]
+            xsol = gp.predict( self.observations[:, mask].T, do_unc=False )
+            x0[param][mask.flatten()] = xsol[0]
             if do_unc:
                 # for the pixels where we have observations, we can use the GP
                 # uncertainty directly. For the one where we don't, we can use
                 # the maximum uncertainty. Maybe this is even too confident!
-                s0[param][self.mask.faltten()] = xsol[1]
-                s0[param][~self.mask.flatten()] = s0[param][self.mask.flatten()].max()
-            x0[param][~self.mask.flatten()] = x0[param][self.mask.flatten()].mean()
+                s0[param][mask.flatten()] = xsol[1]
+                s0[param][~mask.flatten()] = s0[param][mask.flatten()].max()
+            x0[param][~mask.flatten()] = x0[param][mask.flatten()].mean()
+            x0[param] = x0[param].reshape ( self.observations[0,:,:].shape )
         if do_unc:
             return x0, s0
         else:
@@ -1104,6 +1260,7 @@ class ObservationOperatorImageGP ( object ):
         der_cost: array
             An array with the partial derivatives of the cost function
         """
+        
         i = 0
         cost = 0.
         n = 0
@@ -1112,11 +1269,12 @@ class ObservationOperatorImageGP ( object ):
             if typo == CONSTANT:
                 n += 1
             elif typo == VARIABLE:
-                n_elems = x_dict[param].size
+                n_elems = self.state_grid.sum()#x_dict[param].size
                 n += n_elems
         der_cost = np.zeros ( n )
+
         # `x_params` should relate to the grid state size, not observations size
-        x_params = np.empty ( ( len( x_dict.keys()), \
+        x_params = np.zeros ( ( len( x_dict.keys()), \
             self.nx_state * self.ny_state ) )
         j = 0
         ii = 0
@@ -1133,13 +1291,15 @@ class ObservationOperatorImageGP ( object ):
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
-                x_params[ j, : ] = x_dict[param]
+                x_params[ j, : ] = np.where ( np.isfinite(x_dict[param]), 
+                                             x_dict[param], 0. )
                 
             elif typo == VARIABLE:
                 #if self.state.transformation_dict.has_key ( param ):
                     #x_params[ j, : ] = self.state.transformation_dict[param] ( x_dict[param] )
                 #else:
-                x_params[ j, : ] = x_dict[param].flatten()
+                x_params[ j, : ] = np.where ( np.isfinite(x_dict[param]), 
+                                             x_dict[param], 0. ).flatten()
 
             j += 1
         
@@ -1148,19 +1308,33 @@ class ObservationOperatorImageGP ( object ):
         # do a reshape
         if self.factor is not None:
             # Interpolate the mask is needed for the derivatives
-            zmask = zoom ( self.mask, self.factor, order=0, mode="nearest" \
-                ).astype ( np.bool )
+            zmask = zoom ( self.mask, self.factor, order=0, 
+                          mode="nearest" ).astype ( np.bool )
         else:
             zmask = self.mask
         self.obs_op_grad = []
-       
+        # Apply the state grid to the mask in state resolution
+        zmask = zmask * self.state_grid
+        # Combined mask in observation space: combines observation missing data
+        # and state_grid...
+        if self.factor is not None:
+            state_grid_mask_obs = downsample(state_grid*1., self.factor[0],
+                                             self.factor[1] )
+            # Choose the "purest" pixels, more than 90% cover
+            # This should be an option
+            state_grid_mask_obs = np.where ( state_grid_mask_obs > 0.9, True,
+                                            False )
+        else:
+            state_grid_mask_obs = self.state_grid* np.ones_like ( 
+                self.mask, dtype=np.bool )
         for band in xrange ( self.n_bands ):
             # Run the emulator forward. Doing it for all pixels, or only for
             # the unmasked ones
             # Also, need to work out whether the size of the state is 
             # different to that of the observations (ie integrate over coarse res data)
             fwd_model,  partial_derv = \
-                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, do_unc=False)
+                self.emulators[band].predict ( x_params[:, zmask.flatten()].T, 
+                                              do_unc=False)
             # The next couple of lines ensure that the gradient is stored in a full
             # vector shape
             temp_me = np.zeros_like ( x_params )
@@ -1175,8 +1349,11 @@ class ObservationOperatorImageGP ( object ):
                     self.state_grid.shape), self.factor[0], \
                     self.factor[1] ).flatten()
             # Now calculate the cost increase due to this band...
-            err = ( fwd_model - self.observations[band, self.mask] )
-            self.fwd_modelled_obs[band, self.mask] = fwd_model
+            
+            err = ( fwd_model - self.observations[band, 
+                                            self.mask*state_grid_mask_obs] )
+            self.fwd_modelled_obs[band, self.mask*state_grid_mask_obs] = \
+                                    fwd_model
             cost += np.sum(0.5 * err**2/self.bu[band]**2 )
             # And update the partial derivatives
             #the_derivatives += (partial_derv[self.mask.flatten(), :] * \
@@ -1208,16 +1385,20 @@ class ObservationOperatorImageGP ( object ):
         self.diag_hess_vect = np.zeros_like ( der_cost )
         for  i, (param, typo) in enumerate ( state_config.iteritems()) :
             if typo == CONSTANT:
-                der_cost[j] = the_derivatives[i, :].sum()
-                self.diag_hess_vect[j] = diag_hessian[i, :].sum()
+                der_cost[j] = the_derivatives[i, 
+                                              self.state_grid.flatten()].sum()
+                self.diag_hess_vect[j] = diag_hessian[i, 
+                                              self.state_grid.flatten()].sum()
                 j += 1
             elif typo == VARIABLE:
-                n_elems = x_dict[param].size
-                der_cost[j:(j+n_elems) ] = the_derivatives[i, :]
-                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, :]
+                der_cost[j:(j+n_elems) ] = the_derivatives[i, 
+                                                    self.state_grid.flatten()]
+                self.diag_hess_vect[j:(j+n_elems)] = diag_hessian[i, 
+                                                self.state_grid.flatten()]
                 j += n_elems
         self.gradient = der_cost # Store the gradient, we might need it later
         self.obs_op_grad = np.array ( self.obs_op_grad )
+        self._plot()
         return cost, der_cost
     
     def der_der_cost ( self, x, state_config, state, epsilon=1.0e-5 ):
@@ -1238,7 +1419,7 @@ class ObservationOperatorImageGP ( object ):
             N = x.size
         except AttributeError:
             raise OperatorDerDerTypeError('Expecting a vector')
- 
+
         # The Hessian calculations, like everything else, are done
         # in **transformed coordinates**, so we need to pack the 
         # state vector into a dictionary, ensuring that the variables
@@ -1276,7 +1457,10 @@ class ObservationOperatorImageGP ( object ):
         # the entire state grid per parameter. Note that this is not how the
         # rest of eoldas expects the matrix, so we'll have to re-arrange things
         # later
-        Nblocks = Nx * Ny
+        if self.state_grid.dtype == np.dtype ( np.bool ):
+            Nblocks = self.state_grid.sum()
+        else:
+            Nblocks = Nx * Ny
 
         # we have band uncertainties in self.bu
         # so the form of C is simplified here (will that always be so?)
@@ -1293,7 +1477,10 @@ class ObservationOperatorImageGP ( object ):
             # loop over bands
             for b in xrange(Nb):
                 # lets just deal with variable terms for now
-                data = variable_terms[b].reshape( Nvp,Nblocks )
+                if self.state_grid.dtype == np.dtype ( np.bool ):
+                    data = variable_terms[b][:, self.state_grid ]
+                else:
+                    data = variable_terms[b].reshape( Nvp, Nblocks )
                 # loop over blocks (can this be done faster?)
                 
                 # see http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.sparse.block_diag.html
