@@ -569,7 +569,7 @@ class State ( object ):
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
             print "Uncertainty calcs for ", op_name
-            import pdb; pdb.set_trace()
+            
             try:
                this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )

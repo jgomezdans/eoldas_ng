@@ -89,19 +89,14 @@ def calculate_spatial_constraint ( state_grid, lag ):
                         
     M = (DR + DC)
     
+    #grid_true = np.where ( state_grid.flatten()) [0]
+    #R = sp.csr_matrix ( M[grid_true[:, np.newaxis], grid_true[np.newaxis, :] ] )
+    # This is the target output. It's a filtered version of M, with only the 
+    # elements that appear in the outer product selected    
     
-    
-    temp_mat = sp.lil_matrix ( (1, n_elems*n_elems), 
-                    dtype=np.float32)
-    nzero = M.nonzero()
-    cntr = 0
-    
-    for (i,j) in zip (*nzero):
-        temp_mat[0,cntr] = M[i,j]
-        cntr += 1
-    
-                    
-    return reshape (temp_mat, (n_elems, n_elems))
+    A = np.einsum ("i,j", state_grid.flatten(), state_grid.flatten())
+    R = sp.csr_matrix ( (A*M)[state_grid.flatten(), :][:, state_grid.flatten()])
+    return R
 
     
 
