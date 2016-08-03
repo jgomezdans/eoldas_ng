@@ -120,11 +120,12 @@ class State ( object ):
                 self.parameter_max[param] ] )
         self.invtransformation_dict = {}
         self.transformation_dict = {}
-        
-        
         self._set_optimisation_options ( optimisation_options )
+        self.cost_history = { 'global': [],
+                              'iteration': [] }
         self._create_output_file ( output_name )
-        
+        self.iterations = 0 
+        self.iterations_vector = []
         
         
     def _set_optimisation_options ( self, optimisation_options ):
@@ -396,6 +397,7 @@ class State ( object ):
          if not callable(the_op):
              raise AttributeError, "%s does not have a der_cost method!" % op_name     
          self.operators[ op_name ] = op
+         self.cost_history [op_name] = []
      
     def _get_bounds_list ( self ):
         """Return a list with the parameter boundaries. This is required to set the 
@@ -410,6 +412,10 @@ class State ( object ):
                 [ the_bounds.append ( self.bounds[i] ) \
                     for j in xrange ( self.n_elems_masked    )]
         return the_bounds
+
+    def _update_iteration ( self, x ):
+        self.iterations += 1
+        self.iterations_vector.append ( x )
     
     def optimize ( self, x0=None, the_bounds=None, do_unc=False, ret_sol=True ):
         """Optimise the state starting from a first guess `x0`. Can also allow the 
@@ -452,7 +458,8 @@ class State ( object ):
                 x0 = self.pack_from_dict ( x0[0], do_transform=True )
 
         r = scipy.optimize.minimize ( self.cost, x0, method="L-BFGS-B", \
-                jac=True, bounds=the_bounds, options=self.optimisation_options)
+                jac=True, bounds=the_bounds, options=self.optimisation_options,
+                callback=self._update_iteration )
         end_time = time.time()
         if self.verbose:
             if r.success:
@@ -568,7 +575,6 @@ class State ( object ):
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
-            print "Uncertainty calcs for ", op_name
             
             try:
                this_hessian = the_op.der_der_cost ( x_dict, \
@@ -656,8 +662,10 @@ class State ( object ):
              self.cost_components[op_name] = der_cost
              if self.verbose:
                  print "\t%s %8.3e" % ( op_name, cost )
+             self.cost_history[op_name].append ( cost )
          self.the_cost = aggr_cost
-
+         self.cost_history['global'].append (aggr_cost)
+         self.cost_history['iteration'].append ( self.iterations )
          
          if self.verbose:
              print "Total cost: %8.3e" % aggr_cost
