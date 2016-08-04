@@ -24,29 +24,29 @@ FIXED = 1
 CONSTANT = 2
 VARIABLE = 3
 
-Variable_name = collections.namedtuple ( "variable_name", 
+Variable_name = collections.namedtuple ( "variable_name",
                                         "units long_name std_name" )
 class MetaState ( object ):
     """A class to store metadata on the state, such as time, location, units....
     This is required to generate CF compliant netCDF output"""
     def __init__ ( self ):
         self.metadata = {}
-        
+
     def add_variable ( self, varname, units, long_name, std_name ):
-        self.metadata[varname] = Variable_name ( units=units, 
+        self.metadata[varname] = Variable_name ( units=units,
                         long_name=long_name, std_name=std_name )
-        
+
 class State ( object ):
-    
+
     """A state-definition class
-    
-    
+
+
        In EO-LDAS, the state requires the following:
-        
+
        1. a configuration dictionary,
        2. a state grid
        3. a dictionary with default parameter values
-        
+
        The state grid is an array that defines the domain of the
        problem. For example, for a temporal DA problem, it will be
        a vector of however many elements are required timesteps. For
@@ -56,26 +56,26 @@ class State ( object ):
        parameter estimated for all timesteps or grid positions?),
        constant (so it is constant in time and/or space), or whether we
        just prescribe some default value."""
-       
+
     def __init__ ( self, state_config, state_grid, default_values, \
             parameter_min, parameter_max, optimisation_options=None, \
             output_name=None, verbose=False ):
         """State constructor. The state defines the problem we will try
         to solve and as such requires quite  a large number of parameters
-        
+
         Parameters
         -----------
         state_config: OrderedDict
-            The state configuration dictionary. Each key is labeled as FIXED, 
-            CONSTANT or VARIABLE, indicating that that the corresponding 
+            The state configuration dictionary. Each key is labeled as FIXED,
+            CONSTANT or VARIABLE, indicating that that the corresponding
             parameter is set to the default value, a constant value over the
-            entire assimilation window, or variable (e.g. inferred over the 
+            entire assimilation window, or variable (e.g. inferred over the
             selected state grid).
         state_grid: array
             The grid where the parameters will be inferred. Either a 1D or a 2D
-            grid            
+            grid
         default_values: OrderedDict
-            Default values for the variable. Should have the same keys as 
+            Default values for the variable. Should have the same keys as
             ``state_config`` TODO: add test for keys consistency
         parameter_min: OrderedDict
             The lower boundary for the parameters. OrderedDict with same
@@ -93,7 +93,7 @@ class State ( object ):
             Whether to be chatty or not.
         netcdf: boolean
             Whether to save the output in netCDF4 format.
-        
+
         """
         self.state_config = state_config
         self.state_grid = state_grid
@@ -101,8 +101,8 @@ class State ( object ):
         # We now test whether the state mask is operational. We need to
         # check the type of the array in order not to break compatibility
         # In the future, this is just wasteful!
-        
-        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and 
+
+        if ( (self.state_grid.dtype == np.dtype ( np.bool )) and
                     ( self.n_elems != self.state_grid.sum())):
             self.n_elems_masked = self.state_grid.sum()
         else:
@@ -124,10 +124,10 @@ class State ( object ):
         self.cost_history = { 'global': [],
                               'iteration': [] }
         self._create_output_file ( output_name )
-        self.iterations = 0 
+        self.iterations = 0
         self.iterations_vector = []
-        
-        
+
+
     def _set_optimisation_options ( self, optimisation_options ):
         if optimisation_options is None:
             self.optimisation_options = { "maxcor":200, \
@@ -136,23 +136,23 @@ class State ( object ):
             self.optimisation_options = optimisation_options
 
     def _create_output_file ( self, output_name ):
-        
+
         self.netcdf = False
         if output_name is None:
             tag = time.strftime( "%04Y%02m%02d_%02H%02M%02S_", time.localtime())
             tag += platform.node()
             self.output_name = "eoldas_retval_%s" % tag
-            
+
         elif isinstance ( output_name, basestring ):
             self.output_name = output_name + ".pkl"
         else:
             self.output_name = output_name.fname
             self.retval_file = output_name
             self.netcdf = True
-            
-            
+
+
         print "Saving results to %s" % self.output_name
-        
+
     def set_metadata ( self, metadata ):
         """This method allows one to specify time and space locations for the experiment.
         These will be saved in the solution netcdf file."""
@@ -160,8 +160,8 @@ class State ( object ):
             self.metadata = metadata
         except NameError:
             raise "No netCDF4 output!"
-    
-    
+
+
     def set_transformations ( self, transformation_dict, \
             invtransformation_dict ):
         """We can set transformations to the data that will be
@@ -169,20 +169,20 @@ class State ( object ):
         transformations is to quasi-linearise the problem, as that helps
         with convergence and with realistic estimation of posterior
         uncertainties.
-        
+
         Parameters
         -----------
         transformation_dict: dict
-            A dictionary that for each parameter (key) has a transformation 
+            A dictionary that for each parameter (key) has a transformation
             function going from "real units" -> "transformed units". You only
             need to specify functions for the parameters that do require a
             transformations, the others will be assumed non-transformed.
-            
+
         invtransformation_dict: dict
             A dictionary that for each parameter (key) has the inverse
             transformation function, going from "transformed units" ->
-            "real units". You only need to specify functions for the 
-            parameters that do require a transformations, the others will 
+            "real units". You only need to specify functions for the
+            parameters that do require a transformations, the others will
             be assumed non-transformed.
         """
         self.transformation_dict = transformation_dict
@@ -200,10 +200,10 @@ class State ( object ):
                 self.bounds.append ([ tmax, tmin ] )
             else:
                 self.bounds.append ([ tmin, tmax ] )
-                
-                
+
+
     def _state_vector_size ( self ):
-        """Returns the size of the state vector going over the 
+        """Returns the size of the state vector going over the
         state grid and state config dictionary.
         TODO: doesn't take into account state mask!"""
         n_params = 0
@@ -213,23 +213,23 @@ class State ( object ):
             elif typo == VARIABLE:
                 n_params  += self.n_elems_masked
         return n_params
-        
+
     def pack_from_dict ( self, x_dict, do_transform=False ):
         """Packs a state OrderedDict dictionary into a vector that
         the function optimisers can use. Additionally, you can do a
         transform using the defined transformation dictionaries of
         functions.
-        
+
         x_dict: OrderedDict
             A state dictionary. The state dictionary contains the state,
             indexed by parameter name (e.g. the keys of the dictionary).
             The arrays of the individual components have the true dimensions
-            of state_grid. All parameter types (FIXED, CONSTANT and 
+            of state_grid. All parameter types (FIXED, CONSTANT and
             VARIABLE) are present in the state.
         do_transform: boolean
             Whether to invoke the forward transformation method on the parameter
             (if it exists on the trnasformation dictionary) or not.
-            
+
         Returns
         -------
         A vector of the state that can be consumed by function minimisers.
@@ -245,33 +245,33 @@ class State ( object ):
                         x_dict[param] )
                 else:
                     the_vector[i] = x_dict[param]
-                i = i+1        
+                i = i+1
             elif typo == VARIABLE:
                 # For this particular date, the relevant parameter is at location iloc
                 if do_transform and self.transformation_dict.has_key ( param ):
                     try:
                         the_vector[i:(i + self.n_elems_masked)] =  (
-                            self.transformation_dict[param] ( 
+                            self.transformation_dict[param] (
                                 x_dict[param].flatten() ) )
                     except ValueError: # We need to take the state mask into
                                        # account ;(
                         the_vector[i:(i + self.n_elems_masked)] =  (
-                            self.transformation_dict[param] ( 
+                            self.transformation_dict[param] (
                                 x_dict[param][self.state_grid] ) )
                 else:
                     try:
                         the_vector[i:(i + self.n_elems_masked)] =  \
-                            x_dict[param].flatten() 
+                            x_dict[param].flatten()
                     except ValueError:
                         the_vector[i:(i + self.n_elems_masked)] =  \
                             x_dict[param][self.state_grid]
                 i += self.n_elems_masked
-        return the_vector 
-    
+        return the_vector
+
     def _unpack_to_dict ( self, x, do_transform=False, do_invtransform=False ):
         """Unpacks an optimisation vector `x` to a working dict. The oppossite of
         ``self._pack_to_dict``, would you believe it.
-        
+
         Parameters
         -----------
         x: array
@@ -279,26 +279,26 @@ class State ( object ):
         do_transform: boolean
             Whether to do a transform from real to transformed units for the elements
             that support that.
-            
+
         do_invtransform: boolean
             Whether to do an inverse transform from transformed units to real units for
             elements that suppor that
-            
+
         Returns
         --------
         x_dict: OrderedDict
             A state dictionary. The state dictionary contains the state,
             indexed by parameter name (e.g. the keys of the dictionary).
             The arrays of the individual components have the true dimensions
-            of state_grid. All parameter types (FIXED, CONSTANT and 
+            of state_grid. All parameter types (FIXED, CONSTANT and
             VARIABLE) are present in the state.
-        
+
         """
         the_dict = collections.OrderedDict()
         i = 0
         for param, typo in self.state_config.iteritems():
-            
-            if typo == FIXED: # Default value for all times                                
+
+            if typo == FIXED: # Default value for all times
                 if self.transformation_dict.has_key ( \
                         param ):
                     the_dict[param] = self.transformation_dict[param]( \
@@ -306,11 +306,11 @@ class State ( object ):
                 else:
                 #elif do_transform and self.transformation_dict.has_key ( \
                         #param ):
-                    
-                    the_dict[param] = self.default_values[param] 
+
+                    the_dict[param] = self.default_values[param]
                 #else:
                     #the_dict[param] = self.default_values[param]
-                
+
             elif typo == CONSTANT: # Constant value for all times
                 if do_transform and self.transformation_dict.has_key ( \
                         param ):
@@ -327,12 +327,12 @@ class State ( object ):
                 else:
                     the_dict[param] = x[i]
                 i += 1
-                
+
             elif typo == VARIABLE:
                 # Issue here is that we have the state mask to worry about
-                if do_transform and self.transformation_dict.has_key (                                  
+                if do_transform and self.transformation_dict.has_key (
                             param ):
-                     xx = self.transformation_dict[param] ( 
+                     xx = self.transformation_dict[param] (
                         x[i:(i+self.n_elems_masked )] )
                      if self.n_elems == self.n_elems_masked:
                          # No state mask
@@ -342,7 +342,7 @@ class State ( object ):
                         xxx = np.nan*np.ones_like ( self.state_grid )
                         xxx[self.state_grid] = xx
                         the_dict[param] = xxx
-                        
+
                 elif do_invtransform and self.invtransformation_dict.has_key ( \
                         param ):
                     p1 = self.transformation_dict[param] ( self.parameter_max[param] )
@@ -350,7 +350,7 @@ class State ( object ):
                     pmax = max ( p1, p2 )
                     pmin = min ( p1, p2 )
                     xx = np.clip ( x[i:(i+self.n_elems_masked )], p1, p2 )
-                    
+
                     if self.n_elems == self.n_elems_masked:
                          # No state mask
                         xxx = xx.reshape ( self.state_grid.shape )
@@ -360,22 +360,22 @@ class State ( object ):
                         xxx[self.state_grid] = xx
                         #the_dict[param] = xxx
 
-                    
-                    
+
+
                     the_dict[param] = self.invtransformation_dict[param] ( xxx )
 
                 else:
                     if self.n_elems == self.n_elems_masked:
-                        the_dict[param] = x[i:(i+self.n_elems_masked )].reshape( 
+                        the_dict[param] = x[i:(i+self.n_elems_masked )].reshape(
                             self.state_grid.shape )
                     else:
                         xxx = np.nan*np.ones_like ( self.state_grid )
                         xxx[self.state_grid] = x[i:(i+self.n_elems_masked )]
                         the_dict[param] = xxx
                 i += self.n_elems_masked
-            
+
         return the_dict
-    
+
     def add_operator ( self, op_name, op ):
          """Add operators to the state class. The state class per se doesn't do much, one
          needs to add operators (or "constraints"). These operators are in effect the log
@@ -384,10 +384,10 @@ class State ( object ):
          model expectations... The requirements for the operators are to have a ``der_cost``
          method (that returns the cost and the associated gradient) and a ``der_der_cost``,
          that returns the Hessian associated to a particular input state dictionary.
-         
+
          Parameters
          -----------
-         op_name: str 
+         op_name: str
             A name for the operator. This is just for logging and reporting to the user.
          op: Operator class
             An operator class. Typically, provided in ``operators.py`` or derived from the options
@@ -395,12 +395,12 @@ class State ( object ):
          """
          the_op = getattr( op, "der_cost", None)
          if not callable(the_op):
-             raise AttributeError, "%s does not have a der_cost method!" % op_name     
+             raise AttributeError, "%s does not have a der_cost method!" % op_name
          self.operators[ op_name ] = op
          self.cost_history [op_name] = []
-     
+
     def _get_bounds_list ( self ):
-        """Return a list with the parameter boundaries. This is required to set the 
+        """Return a list with the parameter boundaries. This is required to set the
         optimisation boundaries, and it returns a list in the order/format expected
         by L-BFGS"""
         the_bounds = []
@@ -408,7 +408,7 @@ class State ( object ):
             if typo == CONSTANT:
                 the_bounds.append ( self.bounds[i] )
             elif typo == VARIABLE:
-                
+
                 [ the_bounds.append ( self.bounds[i] ) \
                     for j in xrange ( self.n_elems_masked    )]
         return the_bounds
@@ -416,20 +416,20 @@ class State ( object ):
     def _update_iteration ( self, x ):
         self.iterations += 1
         self.iterations_vector.append ( x )
-    
+
     def _update_iteration ( self, x ):
         self.iterations += 1
         self.iterations_vector.append ( x )
-        
+
     def optimize ( self, x0=None, the_bounds=None, do_unc=False, ret_sol=True ):
-        """Optimise the state starting from a first guess `x0`. Can also allow the 
-        specification of parameter boundaries, and whether to calculate the 
+        """Optimise the state starting from a first guess `x0`. Can also allow the
+        specification of parameter boundaries, and whether to calculate the
         uncertainty or not. ``x0`` can have several different forms: it can be
         an orderedDict with a first guess at the parameters, it can be an operator
         name that has a ``first_guess`` method that returns a parameter vector (this
         method is for example a way to use the inverse emulators in some cases), or
         it can be ``None``, in which case, a random state vector is used.
-        
+
         Parameters
         -----------
         x0: dict, string or None
@@ -440,12 +440,12 @@ class State ( object ):
             Boundaries
         do_unc: boolean
             Whether to calculate the uncertainty or not.
-        
+
         """
-        
+
         start_time = time.clock()
         if the_bounds is None:
-            the_bounds = self._get_bounds_list()        
+            the_bounds = self._get_bounds_list()
         if (type(x0) == type ( {} ) ) or ( type(x0) == type ( collections.OrderedDict() ) ):
             # We get a starting dictionary, just use that
             x0 = self.pack_from_dict ( x0, do_transform=True )
@@ -456,7 +456,7 @@ class State ( object ):
             raise NotImplementedError
         elif type( x0 ) is str:
             # Use a single operator that has a ``first_guess`` method
-            x0 = self.operators[x0].first_guess( self.state_config,    
+            x0 = self.operators[x0].first_guess( self.state_config,
                                                 self.state_grid.size )
             if len ( x0 ) > 1:
                 x0 = self.pack_from_dict ( x0[0], do_transform=True )
@@ -485,7 +485,7 @@ class State ( object ):
         #####retval['real_ci75pc'] = ci_75
         #####retval['post_sigma'] = post_sigma
         #####retval['hessian'] =  the_hessian
-                
+
         if self.netcdf:
             self.retval_file.create_group ( "real_map" )
             self.retval_file.create_group ( "transformed_map" )
@@ -494,14 +494,14 @@ class State ( object ):
             oot.update ( self._unpack_to_dict ( r.x, do_invtransform=True ) )
             for k, v in oot.iteritems():
                 self.retval_file.create_variable ( "real_map", k, v,
-                                self.metadata.metadata[k].units, 
+                                self.metadata.metadata[k].units,
                                 self.metadata.metadata[k].long_name,
                                 self.metadata.metadata[k].std_name )
             oot = self.default_values.copy()
             oot.update ( self._unpack_to_dict ( r.x, do_invtransform=False ) )
             for k, v in oot.iteritems():
                 self.retval_file.create_variable ( "transformed_map", k, v,
-                                self.metadata.metadata[k].units, 
+                                self.metadata.metadata[k].units,
                                 self.metadata.metadata[k].long_name,
                                 self.metadata.metadata[k].std_name )
             if do_unc:
@@ -518,20 +518,20 @@ class State ( object ):
                     else:
                         for kk, vv in v.iteritems():
                             self.retval_file.create_variable ( k, kk, vv,
-                                self.metadata.metadata[kk].units, 
+                                self.metadata.metadata[kk].units,
                                 self.metadata.metadata[kk].long_name,
                                 self.metadata.metadata[kk].std_name )
 		self.retval_file = None
         if ret_sol or (not self.netcdf):
-            
+
             retval_dict = {}
             retval_dict['real_map'] = self._unpack_to_dict ( r.x, do_invtransform=True )
             ### horrible HACK
-            
+
             for k,v in self.state_config.iteritems():
                 if self.invtransformation_dict.has_key ( k ) and v == FIXED:
                     retval_dict['real_map'][k] = self.default_values[k]
-                    
+
             retval_dict['transformed_map'] = self._unpack_to_dict ( r.x, \
                 do_invtransform=False )
 
@@ -545,15 +545,15 @@ class State ( object ):
             return retval_dict
         else:
             return 0
-    
+
     def do_uncertainty ( self, x ):
         """A method to calculate the uncertainty. Takes in a state vector.
-        
+
         Parameters
         -----------
         x: array
             State vector (see ``_self._pack_to_dict``)
-        
+
         Returns
         ---------
         A dictionary with the values for the posterior covariance function
@@ -562,24 +562,24 @@ class State ( object ):
         posterior covariance sparse matrix), we get a new dictionary with
         parameter keys and the parameter estimation represented in the
         selected state grid."""
-        
-        
+
+
         the_hessian = sp.lil_matrix ( ( x.size, x.size ) )
         x_dict = self._unpack_to_dict ( x )
         #cost, der_cost = self.operators["Obs"].der_cost ( x_dict, \
             #self.state_config )
         #this_hessian = self.operators["Obs"].der_der_cost ( x_dict, \
                         #self.state_config, self, epsilon=1e-10 )
-        
+
         #for epsilon in [ 10e-10, 1e-8, 1e-6, 1e-10, 1e-12, ]:
             # print "Hessian with epsilon=%e" % epsilon
         # epsilon is defined in order to use der_der_cost methods that
         # evaluate the Hessian numerically
-        epsilon = 1e-8
+        epsilon = 1e-2
         for op_name, the_op in self.operators.iteritems():
             # The try statement is here to allow der_der_cost methods to
             # take either a state dictionary or a state vector
-            
+
             try:
                this_hessian = the_op.der_der_cost ( x_dict, \
                     self.state_config, self, epsilon=epsilon )
@@ -614,10 +614,10 @@ class State ( object ):
             b = np.zeros_like ( x )
             b[k] = 1
             main_diag[k] = lu_obj.solve ( b )[k]
-            
-        post_cov = sp.dia_matrix(main_diag,0 ).tolil() # Sparse purely diagonal covariance matrix 
-        post_sigma = np.sqrt ( main_diag ).squeeze()
-        # Calculate credible intervals, transform them back to real units, and 
+
+        post_cov = sp.dia_matrix(np.abs(main_diag), 0 ).tolil() # Sparse purely diagonal covariance matrix
+        post_sigma = np.sqrt ( np.abs(main_diag) ).squeeze()
+        # Calculate credible intervals, transform them back to real units, and
         # store in a dictionary.
         _ci_5 = self._unpack_to_dict( x - 1.96*post_sigma, do_invtransform=True )
         _ci_95 = self._unpack_to_dict( x + 1.96*post_sigma, do_invtransform=True )
@@ -647,7 +647,7 @@ class State ( object ):
         retval['post_sigma'] = post_sigma
         retval['hessian'] =  the_hessian
         return retval
-        
+
     def cost ( self, x ):
          """Calculate the cost function using a flattened state vector representation"""
          x_dict = self._unpack_to_dict ( x )
@@ -659,7 +659,7 @@ class State ( object ):
 
          start_time = time.time()
          for op_name, the_op in self.operators.iteritems():
-             
+
              cost, der_cost = the_op.der_cost ( x_dict, self.state_config )
              aggr_cost = aggr_cost + cost
              aggr_der_cost = aggr_der_cost + der_cost
@@ -669,10 +669,10 @@ class State ( object ):
          self.the_cost = aggr_cost
          self.cost_history['global'].append (aggr_cost)
          self.cost_history['iteration'].append ( self.iterations )
-         
+
          if self.verbose:
              print "Total cost: %8.3e" % aggr_cost
              print 'Elapsed: %.2f seconds' % (time.time() - start_time)
-             
-             
+
+
          return aggr_cost, aggr_der_cost
